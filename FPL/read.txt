@@ -1,0 +1,6 @@
+run celery beat:
+celery -A FPL beat -l info
+
+run celery worker-
+celery -A FPL worker -l info -P solo
+

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid, TransferWindow, NewsPost
+from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid, TransferWindow, NewsPost, TeamSeasonStats
 
 
 class PlayerSerializer(serializers.ModelSerializer):
@@ -53,7 +53,8 @@ class PlayerSerializer(serializers.ModelSerializer):
 class TeamSummarySerializer(serializers.ModelSerializer):
     class Meta:
         model = Team
-        fields = ['id', 'name', 'logo', 'manager_name', 'current_balance', 'forecast_end_balance']
+        fields = ['id', 'name', 'logo', 'manager_name', 'current_balance', 'forecast_end_balance',"total_wins",
+            "total_losses", "total_draws", "win_percentage"]
 
     def get_logo(self, obj):
         request = self.context.get('request')
@@ -71,7 +72,33 @@ class TransferWindowSerializer(serializers.ModelSerializer):
         model = TransferWindow
         fields = ["season", "year", "is_active"]
 
+class TeamSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Team
+        fields = [
+            "id",
+            "name",
+            "total_wins",
+            "total_losses",
+            "total_draws",
+            "win_percentage",
+        ]
 
+class TeamSeasonStatsSerializer(serializers.ModelSerializer):
+    season_name = serializers.CharField(source="season.season_name", read_only=True)
+
+    class Meta:
+        model = TeamSeasonStats
+        fields = [
+            "id",
+            "team",
+            "season",
+            "season_name",
+            "wins",
+            "losses",
+            "draws",
+            "win_percentage",
+        ]
 
 class TransferHistorySerializer(serializers.ModelSerializer):
     player_name = serializers.CharField(source='player.__str__', read_only=True)

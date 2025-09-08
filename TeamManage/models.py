@@ -87,7 +87,38 @@ class Team(models.Model):
 
         forecast = current_balance - (self.weekly_wage_total * remaining_weeks)
         return round(forecast, 3)
+    
+    total_wins = models.PositiveIntegerField(default=0)
+    total_losses = models.PositiveIntegerField(default=0)
+    total_draws = models.PositiveIntegerField(default=0)
+    win_percentage = models.FloatField(default=0.0)
 
+    def update_stats(self):
+        """Recalculate overall stats from all matches."""
+        from django.db.models import Q, F
+
+        matches = Match.objects.filter(Q(home_team=self) | Q(away_team=self))
+
+        wins = matches.filter(
+            (Q(home_team=self) & Q(home_score__gt=F("away_score"))) |
+            (Q(away_team=self) & Q(away_score__gt=F("home_score")))
+        ).count()
+
+        losses = matches.filter(
+            (Q(home_team=self) & Q(home_score__lt=F("away_score"))) |
+            (Q(away_team=self) & Q(away_score__lt=F("home_score")))
+        ).count()
+
+        draws = matches.filter(home_score=F("away_score")).count()
+
+        total = wins + losses + draws
+        win_pct = (wins / total * 100) if total > 0 else 0
+
+        self.total_wins = wins
+        self.total_losses = losses
+        self.total_draws = draws
+        self.win_percentage = round(win_pct, 2)
+        self.save(update_fields=["total_wins", "total_losses", "total_draws", "win_percentage"])
 
 class Player(models.Model):
     POSITIONS = [
@@ -115,11 +146,12 @@ class Player(models.Model):
 
     base_price = models.FloatField(default=0)
     contract_renew_bonus = models.FloatField(default=0)
-    contract_expiry = models.CharField(
-        max_length=20,
-        validators=[window_validator],
+    contract_expiry = models.ForeignKey(
+        "TransferWindow",
+        on_delete=models.SET_NULL,  # If a transfer window is deleted, keep player but nullify expiry
         blank=True,
         null=True,
+        related_name="players_with_contract_expiry",
     )
     is_academy_player = models.BooleanField(default=False)
     is_loan = models.BooleanField(default=False)
@@ -205,6 +237,49 @@ class Match(models.Model):
 
     def __str__(self):
         return f"GW{self.round.round_number}: {self.home_team} vs {self.away_team}"
+    
+class TeamSeasonStats(models.Model):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="season_stats")
+    season = models.ForeignKey(SeasonConfig, on_delete=models.CASCADE)
+    wins = models.PositiveIntegerField(default=0)
+    losses = models.PositiveIntegerField(default=0)
+    draws = models.PositiveIntegerField(default=0)
+    win_percentage = models.FloatField(default=0.0)
+
+    class Meta:
+        unique_together = ("team", "season")
+
+    def update_stats(self):
+        """Recalculate stats for this team in this season."""
+        from django.db.models import Q, F
+
+        matches = Match.objects.filter(
+            round__season=self.season
+        ).filter(
+            Q(home_team=self.team) | Q(away_team=self.team)
+        )
+
+        wins = matches.filter(
+            (Q(home_team=self.team) & Q(home_score__gt=F("away_score"))) |
+            (Q(away_team=self.team) & Q(away_score__gt=F("home_score")))
+        ).count()
+
+        losses = matches.filter(
+            (Q(home_team=self.team) & Q(home_score__lt=F("away_score"))) |
+            (Q(away_team=self.team) & Q(away_score__lt=F("home_score")))
+        ).count()
+
+        draws = matches.filter(home_score=F("away_score")).count()
+
+        total = wins + losses + draws
+        win_pct = (wins / total * 100) if total > 0 else 0
+
+        self.wins = wins
+        self.losses = losses
+        self.draws = draws
+        self.win_percentage = round(win_pct, 2)
+        self.save()
+
 
 class TransferHistory(models.Model):
     season = models.ForeignKey(SeasonConfig, on_delete=models.CASCADE)

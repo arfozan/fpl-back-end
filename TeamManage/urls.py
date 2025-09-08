@@ -30,5 +30,7 @@ urlpatterns = router.urls + [
     path("bids/", views.create_bid, name="create_bid"),
     path('news/', NewsPostListCreateView.as_view(), name='news-list-create'),
     path('news/<int:pk>/', NewsPostDetailView.as_view(), name='news-detail'),
+    path("teams/<int:team_id>/overall-stats/", views.team_overall_stats, name="team-overall-stats"),
+    path("teams/<int:team_id>/season-stats/", views.team_season_stats, name="team-season-stats"),
 
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

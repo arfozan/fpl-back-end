@@ -1,5 +1,5 @@
 from django.contrib import admin, messages
-from .models import SeasonConfig, Team, Player, Match, Round, TransferHistory, WeeklyBonus, TransferWindow, Bid
+from .models import SeasonConfig, Team, Player, Match, Round, TransferHistory, WeeklyBonus, TransferWindow, Bid, TeamSeasonStats
 from django import forms
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -175,7 +175,21 @@ class MatchAdmin(admin.ModelAdmin):
                 # If no active season, show no rounds or all rounds depending on your preference
                 kwargs["queryset"] = Round.objects.none()
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
+    
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
 
+        # Update overall stats for both teams
+        obj.home_team.update_stats()
+        obj.away_team.update_stats()
+
+        # Update season stats for both teams
+        season = obj.round.season
+        for team in [obj.home_team, obj.away_team]:
+            team_season_stats, _ = TeamSeasonStats.objects.get_or_create(
+                team=team, season=season
+            )
+            team_season_stats.update_stats()
 
 @admin.register(TransferHistory)
 class TransferHistoryAdmin(admin.ModelAdmin):

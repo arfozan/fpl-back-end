@@ -1,10 +1,10 @@
 from rest_framework import viewsets
 from rest_framework.permissions import AllowAny
-from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid, NewsPost
+from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid, NewsPost, TeamSeasonStats
 from .serializers import (
     TeamSummarySerializer, PlayerSerializer,
     SeasonConfigSerializer, TransferHistorySerializer,
-    MatchSerializer, BidSerializer, TransferWindow, NewsPostSerializer
+    MatchSerializer, BidSerializer, TransferWindow, NewsPostSerializer, TeamSeasonStatsSerializer
 )
 from django.db.models import Q, Max
 from rest_framework.views import APIView
@@ -170,13 +170,18 @@ def team_matches(request, team_id):
     except Team.DoesNotExist:
         return Response({"error": "Team not found"}, status=status.HTTP_404_NOT_FOUND)
 
+    # get optional season filter
+    season_id = request.GET.get("season")
+
     matches = Match.objects.filter(
-        home_team=team
-    ) | Match.objects.filter(
-        away_team=team
+        Q(home_team=team) | Q(away_team=team)
     )
 
+    if season_id:
+        matches = matches.filter(round__season_id=season_id)
+
     matches = matches.order_by("-id")
+
     serializer = MatchSerializer(matches, many=True)
     return Response(serializer.data)
 
@@ -190,6 +195,25 @@ def active_season_matches(request):
 
     matches = Match.objects.filter(round__season=active_season).order_by("round__round_number")
     serializer = MatchSerializer(matches, many=True)
+    return Response(serializer.data)
+
+# ✅ Overall stats for a team
+@api_view(["GET"])
+def team_overall_stats(request, team_id):
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return Response({"error": "Team not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    serializer = TeamSummarySerializer(team)
+    return Response(serializer.data)
+
+
+# ✅ Season-wise stats for a team
+@api_view(["GET"])
+def team_season_stats(request, team_id):
+    stats = TeamSeasonStats.objects.filter(team_id=team_id).select_related("season")
+    serializer = TeamSeasonStatsSerializer(stats, many=True)
     return Response(serializer.data)
 
 @api_view(["GET"])

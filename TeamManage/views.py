@@ -4,7 +4,8 @@ from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid, New
 from .serializers import (
     TeamSummarySerializer, PlayerSerializer,
     SeasonConfigSerializer, TransferHistorySerializer,
-    MatchSerializer, BidSerializer, TransferWindow, NewsPostSerializer, TeamSeasonStatsSerializer
+    MatchSerializer, BidSerializer, TransferWindow, NewsPostSerializer, TeamSeasonStatsSerializer,
+    TransferWindowSerializer,
 )
 from django.db.models import Q, Max
 from rest_framework.views import APIView
@@ -81,12 +82,15 @@ def get_my_team(request):
     except Team.DoesNotExist:
         return Response({"error": "No team found for this user"}, status=404)
     
-@api_view(['PUT'])
+@api_view(['PUT', 'POST'])
 @permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser])
 def update_team_images(request):
     try:
         team = Team.objects.get(user_name=request.user)
+
+        if "manager_name" in request.data:
+            team.manager_name = request.data["manager_name"]
 
         if 'manager_photo' in request.FILES:
             team.manager_photo = request.FILES['manager_photo']
@@ -98,6 +102,7 @@ def update_team_images(request):
 
         return Response({
             "message": "Updated successfully",
+            "manager_name": team.manager_name,
             "manager_photo": request.build_absolute_uri(team.manager_photo.url),
             "logo": request.build_absolute_uri(team.logo.url),
         })
@@ -154,13 +159,89 @@ class PlayerTransferHistoryAPIView(generics.ListAPIView):
         player_id = self.kwargs['player_id']
         return TransferHistory.objects.filter(player_id=player_id).select_related("from_team", "to_team", "player", "season")
 
-    
-
 def get_serializer_context(self):
     context = super().get_serializer_context()
     context['team_id'] = self.kwargs.get('team_id')
     return context
 
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def my_team_players(request):
+    """
+    Return the team (if any) for the logged-in user and the players
+    whose Player.team points to that team (team__user_name == request.user).
+    """
+    # optional: get the Team object (could be None)
+    team = Team.objects.filter(user_name=request.user).first()
+
+    # direct filtering by the relation: team__user_name=request.user
+    players_qs = (
+        Player.objects
+        .filter(team__user_name=request.user)
+        .select_related("team", "loan_from_team", "contract_expiry")  # optimization
+        .order_by("position", "last_name")
+    )
+
+    players_data = PlayerSerializer(players_qs, many=True, context={"request": request}).data
+    team_data = TeamSummarySerializer(team, context={"request": request}).data if team else None
+
+    return Response({"team": team_data, "players": players_data}, status=status.HTTP_200_OK)
+
+@api_view(["GET"])
+def list_transfer_windows(request):
+    windows = TransferWindow.objects.all().order_by('id')
+    serializer = TransferWindowSerializer(windows, many=True)
+    return Response(serializer.data)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def toggle_academy(request, player_id):
+    """
+    Toggle is_academy_player for a player.
+    """
+    try:
+        player = Player.objects.get(pk=player_id)
+    except Player.DoesNotExist:
+        return Response({"error": "Player not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    player.is_academy_player = not player.is_academy_player
+    player.save()
+
+    return Response({
+        "id": player.id,
+        "is_academy_player": player.is_academy_player
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def extend_contract(request, player_id):
+    """
+    Extend contract for a player to a new TransferWindow.
+    Body: {"transfer_window_id": 5}
+    """
+    try:
+        player = Player.objects.get(pk=player_id)
+    except Player.DoesNotExist:
+        return Response({"error": "Player not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    window_id = request.data.get("transfer_window_id")
+    if not window_id:
+        return Response({"error": "transfer_window_id required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        window = TransferWindow.objects.get(pk=window_id)
+    except TransferWindow.DoesNotExist:
+        return Response({"error": "Invalid transfer window"}, status=status.HTTP_404_NOT_FOUND)
+
+    player.contract_expiry = window
+    player.save()
+
+    return Response({
+        "id": player.id,
+        "contract_expiry": str(window)
+    })
 
 # 1️⃣ Team-wise matches (all seasons)
 @api_view(['GET'])

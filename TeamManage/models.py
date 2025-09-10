@@ -25,7 +25,7 @@ class TransferWindow(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["season", "year"], name="unique_transfer_window")
         ]
-        ordering = ["-year", "season"]
+        ordering = ["-id"]
 
     def save(self, *args, **kwargs):
         # If this window is set active, deactivate others
@@ -135,6 +135,7 @@ class Player(models.Model):
     nationality = models.CharField(max_length=50, null=True, blank=True)
     position = models.CharField(max_length=2, choices=POSITIONS)
     bonus_earning = models.FloatField(default=0, help_text="Total bonus earned by the player")
+    is_locked = models.BooleanField(default=False)
 
     team = models.ForeignKey(
         Team,
@@ -148,7 +149,7 @@ class Player(models.Model):
     contract_renew_bonus = models.FloatField(default=0)
     contract_expiry = models.ForeignKey(
         "TransferWindow",
-        on_delete=models.SET_NULL,  # If a transfer window is deleted, keep player but nullify expiry
+        on_delete=models.SET_NULL,
         blank=True,
         null=True,
         related_name="players_with_contract_expiry",

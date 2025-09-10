@@ -9,6 +9,8 @@ class PlayerSerializer(serializers.ModelSerializer):
     weekly_wage = serializers.FloatField(read_only=True)
     full_season_wage = serializers.FloatField(read_only=True)
     transfer_history = serializers.SerializerMethodField()
+    contract_expiry = serializers.SerializerMethodField()
+
 
     class Meta:
         model = Player
@@ -33,6 +35,11 @@ class PlayerSerializer(serializers.ModelSerializer):
             return obj.photo.url
         return None
     
+    def get_contract_expiry(self, obj):
+        if obj.contract_expiry:
+            return f"{obj.contract_expiry.season} {obj.contract_expiry.year}"
+        return None
+
     def get_transfer_history(self, obj):
         transfers = TransferHistory.objects.filter(player=obj).select_related("from_team", "to_team", "season").order_by('-transfer_date')
         return TransferHistorySerializer(transfers, many=True, context=self.context).data
@@ -70,7 +77,7 @@ class SeasonConfigSerializer(serializers.ModelSerializer):
 class TransferWindowSerializer(serializers.ModelSerializer):
     class Meta:
         model = TransferWindow
-        fields = ["season", "year", "is_active"]
+        fields = ["id", "season", "year", "is_active"]
 
 class TeamSerializer(serializers.ModelSerializer):
     class Meta:

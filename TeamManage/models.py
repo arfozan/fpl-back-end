@@ -154,6 +154,7 @@ class Player(models.Model):
         related_name="players_with_contract_expiry",
     )
     is_academy_player = models.BooleanField(default=False)
+    was_academy_player = models.BooleanField(default=False)
     is_loan = models.BooleanField(default=False)
     loan_from_team = models.ForeignKey(
         'Team', on_delete=models.SET_NULL, null=True, blank=True, related_name='loaned_players'

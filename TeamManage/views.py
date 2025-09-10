@@ -262,7 +262,7 @@ def extend_contract(request, player_id):
 
     # 4️⃣ Check the 2-id rule
     current_id = player.contract_expiry.id if player.contract_expiry else 0
-    if window.id != current_id + 2:
+    if window.id < current_id + 2:
         return Response(
             {"error": f"Invalid transfer window selected. Must be exactly 2 after current contract ({current_id})."},
             status=status.HTTP_400_BAD_REQUEST
@@ -270,7 +270,10 @@ def extend_contract(request, player_id):
 
     # 5️⃣ Extend contract
     player.contract_expiry = window
-    player.save()
+    if current_id != 0:
+        player.contract_renew_bonus = (player.contract_renew_bonus or 0) + 0.5
+    
+    player.save(update_fields=["contract_expiry", "contract_renew_bonus"])
 
     return Response({
         "id": player.id,

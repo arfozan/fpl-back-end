@@ -106,6 +106,9 @@ def end_loan(modeladmin, request, queryset):
             old_team = player.loan_from_team
             current_team = player.team
 
+            player.is_academy_player = player.was_academy_player
+            player.was_academy_player = False  # reset the temporary field
+
             # Assign back to original team
             player.team = old_team
             player.is_loan = False
@@ -217,7 +220,18 @@ class TransferHistoryAdmin(admin.ModelAdmin):
         obj.season = active_season
         obj.from_team = obj.player.team
         obj.transfer_date = timezone.now().date()
+        obj.player.is_locked = False
 
+        if obj.is_loan:
+            obj.player.was_academy_player = obj.player.is_academy_player
+            obj.player.is_academy_player = False
+        
+        else:
+        # Permanent transfer → reset contract expiry
+            obj.player.contract_expiry = None
+            obj.player.contract_renew_bonus = 0.0
+        
+        obj.player.save(update_fields=['is_locked', 'is_academy_player', 'was_academy_player', 'contract_expiry', 'contract_renew_bonus'])
         super().save_model(request, obj, form, change)
 
 @admin.register(WeeklyBonus)

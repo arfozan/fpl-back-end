@@ -16,7 +16,7 @@ class PlayerSerializer(serializers.ModelSerializer):
         model = Player
         fields = [
             'id', 'first_name', 'last_name', 'full_name', 'photo',
-            'nationality', 'position', 'team_name', 'base_price',
+            'club_name', 'position', 'team_name', 'base_price',
             'contract_renew_bonus', 'contract_expiry', 'is_academy_player',
             'weekly_wage', 'full_season_wage', 'transfer_history'
         ]

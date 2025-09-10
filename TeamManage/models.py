@@ -132,7 +132,6 @@ class Player(models.Model):
     last_name = models.CharField(max_length=50)
     photo = models.ImageField(upload_to='player_photos/')
     club_name = models.CharField(max_length=100, null=True, blank=True)
-    nationality = models.CharField(max_length=50, null=True, blank=True)
     position = models.CharField(max_length=2, choices=POSITIONS)
     bonus_earning = models.FloatField(default=0, help_text="Total bonus earned by the player")
     is_locked = models.BooleanField(default=False)

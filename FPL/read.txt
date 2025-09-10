@@ -4,3 +4,20 @@ celery -A FPL beat -l info
 run celery worker-
 celery -A FPL worker -l info -P solo
 
+FPL/TeamManage/management/import_fpl_players.py
+    import players from FPL
+    python manage.py import_fpl_players
+
+    update existing players status (base price, team name etc)
+    python manage.py import_fpl_players --update
+
+
+FPL/TeamManage/management/update_players_club
+    python manage.py update_player_clubs
+
+
+Unlock players (move academy to Main team and vice versa)
+    python manage.py unlock_players
+
+
+

@@ -197,35 +197,60 @@ def list_transfer_windows(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def toggle_academy(request, player_id):
-    """
-    Toggle is_academy_player for a player.
-    """
+    # Check if any TransferWindow is active
+    if not TransferWindow.objects.filter(is_active=True).exists():
+        return Response(
+            {"error": "No active transfer window. Cannot toggle academy."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
     try:
         player = Player.objects.get(pk=player_id)
     except Player.DoesNotExist:
         return Response({"error": "Player not found"}, status=status.HTTP_404_NOT_FOUND)
 
+    # Prevent toggle if locked
+    if player.is_locked:
+        return Response(
+            {"error": "Player is locked and cannot be toggled"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Toggle academy and lock player
     player.is_academy_player = not player.is_academy_player
+    player.is_locked = True
     player.save()
 
     return Response({
         "id": player.id,
-        "is_academy_player": player.is_academy_player
+        "is_academy_player": player.is_academy_player,
+        "is_locked": player.is_locked
     })
-
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def extend_contract(request, player_id):
     """
     Extend contract for a player to a new TransferWindow.
+    Rules:
+    - There must be an active TransferWindow
+    - The selected transfer_window_id must be exactly 2 greater than current contract_expiry.id
     Body: {"transfer_window_id": 5}
     """
+    # 1️⃣ Check if any active transfer window exists
+    if not TransferWindow.objects.filter(is_active=True).exists():
+        return Response(
+            {"error": "No active transfer window. Cannot extend contract."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # 2️⃣ Get the player
     try:
         player = Player.objects.get(pk=player_id)
     except Player.DoesNotExist:
         return Response({"error": "Player not found"}, status=status.HTTP_404_NOT_FOUND)
 
+    # 3️⃣ Get transfer_window_id from request
     window_id = request.data.get("transfer_window_id")
     if not window_id:
         return Response({"error": "transfer_window_id required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -235,6 +260,15 @@ def extend_contract(request, player_id):
     except TransferWindow.DoesNotExist:
         return Response({"error": "Invalid transfer window"}, status=status.HTTP_404_NOT_FOUND)
 
+    # 4️⃣ Check the 2-id rule
+    current_id = player.contract_expiry.id if player.contract_expiry else 0
+    if window.id != current_id + 2:
+        return Response(
+            {"error": f"Invalid transfer window selected. Must be exactly 2 after current contract ({current_id})."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # 5️⃣ Extend contract
     player.contract_expiry = window
     player.save()
 

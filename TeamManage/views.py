@@ -185,8 +185,9 @@ def my_team_players(request):
 
     players_data = PlayerSerializer(players_qs, many=True, context={"request": request}).data
     team_data = TeamSummarySerializer(team, context={"request": request}).data if team else None
+    expiring_count = players_qs.filter(contract_expiry__isnull=True).count()
 
-    return Response({"team": team_data, "players": players_data}, status=status.HTTP_200_OK)
+    return Response({"team": team_data, "players": players_data, "expiring_contracts_count": expiring_count}, status=status.HTTP_200_OK)
 
 @api_view(["GET"])
 def list_transfer_windows(request):

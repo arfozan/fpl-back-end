@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -26,6 +27,10 @@ SECRET_KEY = 'django-insecure-n8k3z7!$b^3ypc$(olt&wd#yu2!wg^4#bqsq^mru%dvil(1a$y
 DEBUG = True
 
 ALLOWED_HOSTS = ['127.0.2.2', '192.168.0.50', '192.168.0.3', 'localhost', '127.0.0.1']
+
+# Default bid expiry (change this for testing vs prod)
+# BID_EXPIRY = timedelta(hours=24)   # production
+BID_EXPIRY = timedelta(minutes=5)
 
 
 # Application definition

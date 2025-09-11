@@ -3,7 +3,8 @@ from django.core.validators import RegexValidator
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.utils import timezone
-from datetime import timedelta
+from decimal import Decimal
+from django.conf import settings
 
 # Validator for "Summer 2026" or "Winter 2028"
 window_validator = RegexValidator(
@@ -55,38 +56,39 @@ class Team(models.Model):
     manager_name = models.CharField(max_length=100)
     manager_photo = models.ImageField(upload_to='manager_photos/')
     user_name = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
-    bonus_income = models.FloatField(default=0, help_text="Total bonus income earned by the team")
+    bonus_income = models.DecimalField(max_digits=10, decimal_places=5, default=0, help_text="Total bonus income earned by the team")
 
-    current_balance = models.FloatField(null=True, blank=True, help_text="Running balance updated weekly")
+    current_balance = models.DecimalField(max_digits=10, decimal_places=5, null=True, blank=True, help_text="Running balance updated weekly")
 
     def __str__(self):
         return self.name
 
     def save(self, *args, **kwargs):
         if self.current_balance is None:
-            self.current_balance = 0  # default initial balance
+            self.current_balance = Decimal(0)
         super().save(*args, **kwargs)
 
 
     @property
-    def weekly_wage_total(self):
+    def weekly_wage_total(self)-> Decimal:
         return sum(player.weekly_wage for player in self.players.all())
 
     @property
-    def forecast_end_balance(self):
+    def forecast_end_balance(self)-> Decimal:
         season = SeasonConfig.get_active_season()
         if not season:
             # No active season info; just return current balance
-            return self.current_balance or 0
+            return self.current_balance or Decimal(0)
 
         remaining_weeks = 38 - season.current_gameweek
         if remaining_weeks < 0:
             remaining_weeks = 0
 
-        current_balance = self.current_balance if self.current_balance is not None else 0
+        current_balance = self.current_balance if self.current_balance is not None else Decimal(0)
+        weekly_wage_total = self.weekly_wage_total if self.weekly_wage_total is not None else Decimal(0)
 
-        forecast = current_balance - (self.weekly_wage_total * remaining_weeks)
-        return round(forecast, 3)
+        forecast = current_balance - (weekly_wage_total * Decimal(remaining_weeks))
+        return forecast.quantize(Decimal("0.001"))
     
     total_wins = models.PositiveIntegerField(default=0)
     total_losses = models.PositiveIntegerField(default=0)
@@ -133,7 +135,7 @@ class Player(models.Model):
     photo = models.ImageField(upload_to='player_photos/')
     club_name = models.CharField(max_length=100, null=True, blank=True)
     position = models.CharField(max_length=2, choices=POSITIONS)
-    bonus_earning = models.FloatField(default=0, help_text="Total bonus earned by the player")
+    bonus_earning = models.DecimalField(max_digits=10, decimal_places=5, default=0, help_text="Total bonus earned by the player")
     is_locked = models.BooleanField(default=False)
 
     team = models.ForeignKey(
@@ -144,8 +146,8 @@ class Player(models.Model):
         related_name='players'
     )
 
-    base_price = models.FloatField(default=0)
-    contract_renew_bonus = models.FloatField(default=0)
+    base_price = models.DecimalField(max_digits=10, decimal_places=5 , default=0)
+    contract_renew_bonus = models.DecimalField(max_digits=10, decimal_places=5, default=0)
     contract_expiry = models.ForeignKey(
         "TransferWindow",
         on_delete=models.SET_NULL,
@@ -164,19 +166,20 @@ class Player(models.Model):
         return f"{self.first_name} {self.last_name}"
 
     @property
-    def bonus_price(self):
-        return self.base_price + self.contract_renew_bonus
+    def bonus_price(self)->Decimal:
+        return (self.base_price or Decimal("0") + self.contract_renew_bonus or Decimal("0"))
 
     @property
-    def weekly_wage(self):
-        if self.base_price == 0:
-            return 0
-        factor = 6000 if self.is_academy_player else 2000
-        return round((self.bonus_price ** 3) / factor, 3)
+    def weekly_wage(self)->Decimal:
+        if not self.base_price or self.base_price == Decimal("0"):
+            return Decimal("0")
+        factor = Decimal("6000") if self.is_academy_player else Decimal("2000")
+        wage = (self.bonus_price ** 3) / factor
+        return wage.quantize(Decimal("0.001"))
 
     @property
-    def full_season_wage(self):
-        return round(self.weekly_wage * 38, 3)
+    def full_season_wage(self)->Decimal:
+        return (self.weekly_wage * Decimal("38").quantize(Decimal("0.001")))
 
 class Round(models.Model):
     season = models.ForeignKey(
@@ -289,7 +292,7 @@ class TransferHistory(models.Model):
         'Team', on_delete=models.SET_NULL, null=True, related_name="transfers_out", editable=False
     )
     to_team = models.ForeignKey('Team', on_delete=models.SET_NULL, null=True, related_name="transfers_in")
-    amount = models.FloatField(default=0)
+    amount = models.DecimalField(max_digits=10, decimal_places=5, default=0)
     transfer_date = models.DateField(default=timezone.now)
     is_loan = models.BooleanField(default=False)
     loan_gameweek = models.IntegerField(null=True, blank=True)
@@ -333,10 +336,11 @@ class TransferHistory(models.Model):
 
             # Update balances
             if self.from_team:
-                self.from_team.current_balance += self.amount
+                self.from_team.current_balance = (self.from_team.current_balance or Decimal("0")) + (self.amount or Decimal("0"))
                 self.from_team.save(update_fields=["current_balance"])
+
             if self.to_team:
-                self.to_team.current_balance -= self.amount
+                self.to_team.current_balance = (self.to_team.current_balance or Decimal("0")) - (self.amount or Decimal("0"))
                 self.to_team.save(update_fields=["current_balance"])
 
 class WeeklyBonus(models.Model):
@@ -400,45 +404,48 @@ class WeeklyBonus(models.Model):
                 raise ValidationError(f"{fw} is not a forward.")
 
     def apply_bonuses(self):
+        one = Decimal("1.0")
+        half = Decimal("0.5")
+        third = Decimal("0.3")
         """Apply bonuses to teams and players."""
         # 1. Highest Point Teams (+1)
         for team in self.highest_point_teams.all():
-            team.current_balance = (team.current_balance or 0) + 1
-            team.bonus_income += 1
+            team.current_balance = (team.current_balance or Decimal("0")) + one
+            team.bonus_income = (team.bonus_income or Decimal("0")) + one
             team.save(update_fields=["current_balance", "bonus_income"])
 
         # 2. Highest Point Players (+1)
         for player in self.highest_point_players.all():
-            player.bonus_earning += 1
+            player.bonus_earning = (player.bonus_earning or Decimal("0")) + one
             player.save(update_fields=["bonus_earning"])
             if player.team:
-                player.team.current_balance = (player.team.current_balance or 0) + 1
-                player.team.bonus_income += 1
+                player.team.current_balance = (player.team.current_balance or Decimal("0")) + one
+                player.team.bonus_income = (player.team.bonus_income or Decimal("0")) + one
                 player.team.save(update_fields=["current_balance", "bonus_income"])
 
         # 3–6. Position-specific (+0.5)
         pos_bonus = {
-            self.highest_gk_players: 0.5,
-            self.highest_df_players: 0.5,
-            self.highest_mf_players: 0.5,
-            self.highest_fw_players: 0.5,
+            self.highest_gk_players: half,
+            self.highest_df_players: half,
+            self.highest_mf_players: half,
+            self.highest_fw_players: half,
         }
         for qs, amount in pos_bonus.items():
             for player in qs.all():
-                player.bonus_earning += amount
+                player.bonus_earning = (player.bonus_earning or Decimal("0")) + amount
                 player.save(update_fields=["bonus_earning"])
                 if player.team:
-                    player.team.current_balance = (player.team.current_balance or 0) + amount
-                    player.team.bonus_income += amount
+                    player.team.current_balance = (player.team.current_balance or Decimal("0")) + amount
+                    player.team.bonus_income = (player.team.bonus_income or Decimal("0")) + amount
                     player.team.save(update_fields=["current_balance", "bonus_income"])
 
         # 7. Special Bonus Players (+0.3)
         for player in self.special_bonus_players.all():
-            player.bonus_earning += 0.3
+            player.bonus_earning = (player.bonus_earning or Decimal("0")) + third
             player.save(update_fields=["bonus_earning"])
             if player.team:
-                player.team.current_balance = (player.team.current_balance or 0) + 0.3
-                player.team.bonus_income += 0.3
+                player.team.current_balance = (player.team.current_balance or Decimal("0")) + third
+                player.team.bonus_income = (player.team.bonus_income or Decimal("0")) + third
                 player.team.save(update_fields=["current_balance", "bonus_income"])
 
     def save(self, *args, **kwargs):
@@ -452,7 +459,7 @@ class WeeklyBonus(models.Model):
 class Bid(models.Model):
     player = models.OneToOneField(Player, on_delete=models.CASCADE, related_name="bid")
     team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="bids")
-    amount = models.FloatField()
+    amount = models.DecimalField(max_digits=5, decimal_places=1)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
 
@@ -463,7 +470,7 @@ class Bid(models.Model):
         is_new = self.pk is None
         if is_new:
             # First bid: set expiry 24h from now
-            self.expires_at = timezone.now() + timedelta(hours=24)
+            self.expires_at = timezone.now() + settings.BID_EXPIRY
         super().save(*args, **kwargs)
 
     def __str__(self):

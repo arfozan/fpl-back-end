@@ -1,16 +1,18 @@
 from rest_framework import serializers
 from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid, TransferWindow, NewsPost, TeamSeasonStats
-
+from decimal import Decimal
 
 class PlayerSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
     photo = serializers.SerializerMethodField()
     team_name = serializers.SerializerMethodField()
-    weekly_wage = serializers.FloatField(read_only=True)
-    full_season_wage = serializers.FloatField(read_only=True)
+    weekly_wage = serializers.SerializerMethodField()
+    full_season_wage = serializers.SerializerMethodField()
     transfer_history = serializers.SerializerMethodField()
     contract_expiry = serializers.SerializerMethodField()
-
+    base_price = serializers.SerializerMethodField()
+    current_bid = serializers.SerializerMethodField()
+    min_bid = serializers.SerializerMethodField()
 
     class Meta:
         model = Player
@@ -20,6 +22,15 @@ class PlayerSerializer(serializers.ModelSerializer):
             'contract_renew_bonus', 'contract_expiry', 'is_academy_player',
             'weekly_wage', 'full_season_wage', 'transfer_history'
         ]
+
+    def get_base_price(self, obj):
+        return Decimal(obj.base_price or 0)
+
+    def get_weekly_wage(self, obj):
+        return Decimal((obj.weekly_wage or 0))
+    
+    def get_full_season_wage(self, obj):
+        return Decimal((obj.weekly_wage or 0) * 38)
 
     def get_full_name(self, obj):
         return f"{obj.first_name} {obj.last_name}"
@@ -45,19 +56,35 @@ class PlayerSerializer(serializers.ModelSerializer):
         return TransferHistorySerializer(transfers, many=True, context=self.context).data
     
     def get_current_bid(self, obj):
-        try:
-            return obj.Bid.amount
-        except Bid.DoesNotExist:
-            return None
+        bid = Bid.objects.filter(player=obj).order_by('-expires_at').first()
+        return bid.amount if bid else None
+    
+    def get_min_bid(self, obj):
+        existing_bid = Bid.objects.filter(player=obj).first()
+        if existing_bid:
+            active_window = TransferWindow.objects.filter(is_active=True).first()
+            if active_window and obj.contract_expiry_id == active_window.id:
+                return Decimal("0")  # free transfer
+            return obj.base_price
+        else:
+            return existing_bid.amount + Decimal("0.1")
 
-    def get_current_bid_team(self, obj):
-        try:
-            return obj.Bid.team
-        except Bid.DoesNotExist:
-            return None
+    
+    # def get_current_bid(self, obj):
+    #     try:
+    #         return obj.Bid.amount
+    #     except Bid.DoesNotExist:
+    #         return None
 
+    # def get_current_bid_team(self, obj):
+    #     try:
+    #         return obj.Bid.team
+    #     except Bid.DoesNotExist:
+    #         return None
 
 class TeamSummarySerializer(serializers.ModelSerializer):
+    current_balance = serializers.SerializerMethodField()
+    forecast_end_balance = serializers.SerializerMethodField()
     class Meta:
         model = Team
         fields = ['id', 'name', 'logo', 'manager_name', 'current_balance', 'forecast_end_balance',"total_wins",
@@ -68,6 +95,11 @@ class TeamSummarySerializer(serializers.ModelSerializer):
         if obj.logo:
             return request.build_absolute_uri(obj.logo.url)
         return None
+    
+    def get_current_balance(self, obj):
+        return Decimal(obj.current_balance or 0)
+    def get_forecast_end_balance(self, obj):
+        return Decimal(obj.forecast_end_balance or 0)
 
 class SeasonConfigSerializer(serializers.ModelSerializer):
     class Meta:
@@ -119,6 +151,8 @@ class TransferHistorySerializer(serializers.ModelSerializer):
             'amount', 'transfer_date', 'is_loan', 'loan_gameweek',
             'is_loan_end', 'description'
         ]
+    def get_amount(self, obj):
+        return Decimal(obj.amount or 0)
 
 class MatchSerializer(serializers.ModelSerializer):
     round_number = serializers.IntegerField(source="round.round_number", read_only=True)
@@ -141,6 +175,7 @@ class BidSerializer(serializers.ModelSerializer):
     player_name = serializers.SerializerMethodField()
     player_photo = serializers.SerializerMethodField()
     team_name = serializers.CharField(source="team.name", read_only=True)
+    amount = serializers.SerializerMethodField()
 
     class Meta:
         model = Bid
@@ -155,6 +190,8 @@ class BidSerializer(serializers.ModelSerializer):
             photo_url = obj.player.photo.url
             return request.build_absolute_uri(photo_url) if request else photo_url
         return None
+    def get_amount(self, obj):
+        return Decimal(obj.amount or 0)
 
 class NewsPostSerializer(serializers.ModelSerializer):
     author = serializers.CharField(source='author.username', read_only=True)

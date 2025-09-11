@@ -1,5 +1,6 @@
 from django.utils import timezone
 from .models import Bid, TransferHistory, SeasonConfig
+from decimal import Decimal
 
 def finalize_expired_bids():
     now = timezone.now()
@@ -29,7 +30,7 @@ def finalize_expired_bids():
         print(f"[TRANSFER] {player} -> {team} for {bid.amount}M")
 
         # Deduct bid amount
-        team.current_balance -= bid.amount
+        team.current_balance = (team.current_balance or Decimal("0")) - (bid.amount or Decimal("0"))
         team.save(update_fields=["current_balance"])
 
         # Assign player to team (academy flag)

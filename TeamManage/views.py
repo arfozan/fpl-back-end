@@ -17,6 +17,8 @@ from rest_framework import generics, permissions, status
 from rest_framework.decorators import action
 from django.utils import timezone
 from datetime import timedelta
+from decimal import Decimal
+from django.conf import settings
 
 @api_view(['GET'])
 def get_all_teams_summary(request):
@@ -235,7 +237,7 @@ def extend_contract(request, player_id):
     Extend contract for a player to a new TransferWindow.
     Rules:
     - There must be an active TransferWindow
-    - The selected transfer_window_id must be exactly 2 greater than current contract_expiry.id
+    - The selected transfer_window_id must be 2 greater than current contract_expiry.id
     Body: {"transfer_window_id": 5}
     """
     # 1️⃣ Check if any active transfer window exists
@@ -272,7 +274,7 @@ def extend_contract(request, player_id):
     # 5️⃣ Extend contract
     player.contract_expiry = window
     if current_id != 0:
-        player.contract_renew_bonus = (player.contract_renew_bonus or 0) + 0.5
+        player.contract_renew_bonus = (player.contract_renew_bonus or Decimal("0")) + Decimal("0.5")
     
     player.save(update_fields=["contract_expiry", "contract_renew_bonus"])
 
@@ -345,16 +347,12 @@ def players_list(request):
 @permission_classes([IsAuthenticated])
 def create_bid(request):
     player_id = request.data.get("player_id")
-    amount = float(request.data.get("amount", 0))
-
-    print("DEBUG: Backend received bid")
-    print("DEBUG: Player ID:", player_id)
+    amount = Decimal(str(request.data.get("amount", "0")))
 
     user = request.user
     if not user.is_authenticated:
         return Response({"error": "Unauthorized"}, status=401)
 
-    # Get the team from the logged-in user
     try:
         team = Team.objects.get(user_name=user)
         player = Player.objects.get(id=player_id)
@@ -364,77 +362,97 @@ def create_bid(request):
     except Player.DoesNotExist:
         return Response({"error": "Invalid player"}, status=400)
 
-    # --- Free agent check ---
+    # Free agent check
     if player.team:
         return Response(
             {"error": "This player already belongs to a team and cannot be bid on."},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # --- Eligibility check ---
+    # --- Determine minBid ---
+    existing_bid = Bid.objects.filter(player=player).first()
+    
+    if not existing_bid:
+    # First bid logic
+        active_window = TransferWindow.objects.filter(is_active=True).first()
+        print("DEBUG:", player.contract_expiry_id, active_window.id if active_window else None)
+
+        if active_window and player.contract_expiry_id == active_window.id:
+            min_bid = Decimal("0")  # free transfer for first bid
+        else:
+            min_bid = player.base_price
+    else:
+        # There is already a bid → next bid must be higher
+        min_bid = existing_bid.amount + Decimal("0.1")
+
+    # --- Validation ---
+    if amount < min_bid:
+        return Response(
+            {"error": f"Bid must be at least {amount}M"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    increment = Decimal("0.1") 
+    min_bid = Decimal(str(min_bid))
+
+    if existing_bid:
+        base = Decimal(str(existing_bid.amount))
+    else:
+        base = min_bid
+
+    diff = amount - base
+    steps = diff / increment
+
+    if steps != steps.to_integral_value():
+        return Response(
+            {"error": f"Bid must increase in {steps}M steps"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # --- Forecast balance check ---
     forecast_end_balance = team.forecast_end_balance
     current_gameweek = season.current_gameweek
+    new_bid_cost = amount + (player.weekly_wage * Decimal(38 - current_gameweek))
 
-    # Calculate cost for this new bid
-    new_bid_cost = amount + player.weekly_wage * (38 - current_gameweek)
-
-    # Calculate cost of existing active bids by this team
     active_bids = Bid.objects.filter(team=team, player__team__isnull=True)
-
-    active_bids_cost = 0
+    active_bids_cost = Decimal("0")
     for b in active_bids:
-        # Important: skip this player if it's already being updated
         if b.player_id == player.id:
             continue
-        active_bids_cost += b.amount + b.player.weekly_wage * (38 - current_gameweek)
+        active_bids_cost += b.amount + (b.player.weekly_wage * Decimal(38 - current_gameweek))
 
     total_future_commitment = new_bid_cost + active_bids_cost
-
-    if forecast_end_balance - total_future_commitment <= -15:
+    if forecast_end_balance - total_future_commitment <= Decimal("-15"):
         return Response(
             {"error": "Insufficient forecast balance, cannot place bid"},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-
-    # --- One bid per player ---
-    existing_bid = Bid.objects.filter(player=player).first()
-
+    # --- Save bid ---
     if existing_bid:
-        if amount > existing_bid.amount:
-            # Update existing bid (higher bid replaces it)
-            existing_bid.team = team
-            existing_bid.amount = amount
-            existing_bid.expires_at = timezone.now() + timedelta(hours=24)
-            existing_bid.save(update_fields=["team", "amount", "expires_at"])
-            return Response(
-                {"message": "Bid updated successfully", "bid_id": existing_bid.id},
-                status=status.HTTP_200_OK
-            )
-        else:
-            return Response(
-                {"error": "New bid must be higher than current bid"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        existing_bid.team = team
+        existing_bid.amount = amount
+        existing_bid.expires_at = timezone.now() + settings.BID_EXPIRY
+        existing_bid.save(update_fields=["team", "amount", "expires_at"])
+        return Response(
+            {"message": "Bid updated successfully", "bid_id": existing_bid.id},
+            status=status.HTTP_200_OK
+        )
 
-    # --- First bid for this player ---
     bid = Bid.objects.create(
         team=team,
         player=player,
         amount=amount,
-        expires_at=timezone.now() + timedelta(hours=24)
+        expires_at=timezone.now() + settings.BID_EXPIRY
     )
 
     return Response(
         {
             "message": "Bid placed successfully",
-            "bid_id": bid.id,
-            "debug_player_id": player.id,
-            "debug_team_id": team.id
+            "bid_id": bid.id
         },
         status=status.HTTP_201_CREATED,
     )
-
 
 @api_view(["GET"])
 def free_agents(request):

@@ -28,6 +28,13 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['127.0.2.2', '192.168.0.50', '192.168.0.3', 'localhost', '127.0.0.1']
 
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+    }
+}
+
+
 # Default bid expiry (change this for testing vs prod)
 # BID_EXPIRY = timedelta(hours=24)   # production
 BID_EXPIRY = timedelta(minutes=5)
@@ -56,6 +63,7 @@ REST_FRAMEWORK = {
 }
 
 MIDDLEWARE = [
+    'TeamManage.middleware.FinalizeBidsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -149,19 +157,6 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-CELERY_BROKER_URL = "redis://localhost:6379/0"
-CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
-
-# Optional: schedule periodic tasks
-from celery.schedules import crontab
-
-CELERY_BEAT_SCHEDULE = {
-    "finalize-bids-every-5-minutes": {
-        "task": "TeamManage.tasks.finalize_bids_task",
-        "schedule": 60.0,  # every 1 minutes
-    },
-}
 
 LOGGING = {
     "version": 1,

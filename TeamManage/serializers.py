@@ -20,7 +20,7 @@ class PlayerSerializer(serializers.ModelSerializer):
             'id', 'first_name', 'last_name', 'full_name', 'photo',
             'club_name', 'position', 'team_name', 'base_price',
             'contract_renew_bonus', 'contract_expiry', 'is_academy_player',
-            'weekly_wage', 'full_season_wage', 'transfer_history'
+            'weekly_wage', 'full_season_wage', 'transfer_history', 'current_bid', 'min_bid'
         ]
 
     def get_base_price(self, obj):
@@ -56,17 +56,21 @@ class PlayerSerializer(serializers.ModelSerializer):
         return TransferHistorySerializer(transfers, many=True, context=self.context).data
     
     def get_current_bid(self, obj):
-        bid = Bid.objects.filter(player=obj).order_by('-expires_at').first()
+        # highest bid so far
+        bid = Bid.objects.filter(player=obj).order_by('-amount').first()
         return bid.amount if bid else None
-    
+
     def get_min_bid(self, obj):
-        existing_bid = Bid.objects.filter(player=obj).first()
-        if existing_bid:
+        existing_bid = Bid.objects.filter(player=obj).order_by('-amount').first()
+
+        if not existing_bid:
+            # No bid yet
             active_window = TransferWindow.objects.filter(is_active=True).first()
             if active_window and obj.contract_expiry_id == active_window.id:
-                return Decimal("0")  # free transfer
+                return Decimal("0")  # free transfer for first bid
             return obj.base_price
         else:
+            # Next bid must be +0.1
             return existing_bid.amount + Decimal("0.1")
 
     

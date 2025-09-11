@@ -90,24 +90,26 @@ class TeamAdmin(admin.ModelAdmin):
 
 @admin.action(description="End Loan and Return Player to Original Club")
 def end_loan(modeladmin, request, queryset):
-    loaned_players = queryset.filter(is_loan=True)
+    # queryset here is TransferHistory queryset
+    loaned_histories = queryset.filter(is_loan=True, is_loan_end=False).select_related('player')
     active_season = SeasonConfig.objects.filter(is_season_active=True).first()
 
-    if not loaned_players.exists():
-        messages.warning(request, "No loaned players selected.")
+    if not loaned_histories.exists():
+        messages.warning(request, "No active loan histories selected.")
         return
 
-    for player in loaned_players:
-        if not player.loan_from_team:
-            messages.warning(request, f"{player.first_name} {player.last_name} has no original club recorded.")
+    for history in loaned_histories:
+        player = history.player
+        if not history.from_team:
+            messages.warning(request, f"{player.full_name} has no original club recorded.")
             continue
 
         with transaction.atomic():
-            old_team = player.loan_from_team
-            current_team = player.team
+            old_team = history.from_team
+            current_team = history.to_team
 
             player.is_academy_player = player.was_academy_player
-            player.was_academy_player = False  # reset the temporary field
+            player.was_academy_player = False
 
             # Assign back to original team
             player.team = old_team
@@ -115,7 +117,11 @@ def end_loan(modeladmin, request, queryset):
             player.loan_from_team = None
             player.save()
 
-            # Create transfer history entry
+            # Mark the transfer history as loan-ended
+            history.is_loan_end = True
+            history.save()
+
+            # Optionally create a new transfer history for return
             TransferHistory.objects.create(
                 season=active_season,
                 player=player,
@@ -124,8 +130,13 @@ def end_loan(modeladmin, request, queryset):
                 amount=0,
                 is_loan_end=True,
             )
+    messages.success(request, f"Loan ended for {loaned_histories.count()} players.")
 
-    messages.success(request, f"Loan ended for {loaned_players.count()} players.")
+# # Then register in TransferHistoryAdmin
+# @admin.register(TransferHistory)
+# class TransferHistoryAdmin(admin.ModelAdmin):
+#     list_display = ('player', 'from_team', 'to_team', 'is_loan', 'is_loan_end', 'season')
+#     actions = [end_loan]  # attach the action here
 
 @admin.register(Player)
 class PlayerAdmin(admin.ModelAdmin):
@@ -142,7 +153,6 @@ class PlayerAdmin(admin.ModelAdmin):
         'is_loan',         
         'loan_from_team',   
     )
-    actions = [end_loan]
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -200,6 +210,8 @@ class TransferHistoryAdmin(admin.ModelAdmin):
     readonly_fields = ('from_team', 'season')
     fields = ('season', 'player', 'to_team', 'amount', 'is_loan', 'loan_gameweek', 'description', 'from_team')
     autocomplete_fields = ['player', 'to_team']
+
+    actions = [end_loan]
 
     def loan_end_flag(self, obj):
         return "✅" if obj.is_loan_end else ""

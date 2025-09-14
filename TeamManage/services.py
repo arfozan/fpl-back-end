@@ -36,7 +36,9 @@ def finalize_expired_bids():
         # Assign player to team (academy flag)
         player.team = team
         player.is_academy_player = True
-        player.save(update_fields=["team", "is_academy_player"])
+        player.contract_expiry = None
+        player.contract_renew_bonus = Decimal('0.0')
+        player.save(update_fields=["team", "is_academy_player", "contract_expiry", "contract_renew_bonus"])
         print(f"[PLAYER UPDATED] {player} assigned to {team}")
 
         # Remove bid (auction closed)

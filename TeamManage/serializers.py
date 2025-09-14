@@ -73,19 +73,6 @@ class PlayerSerializer(serializers.ModelSerializer):
             # Next bid must be +0.1
             return existing_bid.amount + Decimal("0.1")
 
-    
-    # def get_current_bid(self, obj):
-    #     try:
-    #         return obj.Bid.amount
-    #     except Bid.DoesNotExist:
-    #         return None
-
-    # def get_current_bid_team(self, obj):
-    #     try:
-    #         return obj.Bid.team
-    #     except Bid.DoesNotExist:
-    #         return None
-
 class TeamSummarySerializer(serializers.ModelSerializer):
     current_balance = serializers.SerializerMethodField()
     forecast_end_balance = serializers.SerializerMethodField()
@@ -113,7 +100,7 @@ class SeasonConfigSerializer(serializers.ModelSerializer):
 class TransferWindowSerializer(serializers.ModelSerializer):
     class Meta:
         model = TransferWindow
-        fields = ["id", "season", "year", "is_active"]
+        fields = ["id", "season", "year", "is_active", "is_contract_open"]
 
 class TeamSerializer(serializers.ModelSerializer):
     class Meta:

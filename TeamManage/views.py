@@ -236,12 +236,13 @@ def extend_contract(request, player_id):
     """
     Extend contract for a player to a new TransferWindow.
     Rules:
-    - There must be an active TransferWindow
-    - The selected transfer_window_id must be 2 greater than current contract_expiry.id
+    - There must be an is_contract_open=True TransferWindow
+    - The selected transfer_window_id must be 2 or greater than current contract_expiry.id
     Body: {"transfer_window_id": 5}
     """
     # 1️⃣ Check if any active transfer window exists
-    if not TransferWindow.objects.filter(is_active=True).exists():
+    current_window = TransferWindow.objects.filter(is_contract_open=True).first()
+    if not current_window:
         return Response(
             {"error": "No active transfer window. Cannot extend contract."},
             status=status.HTTP_400_BAD_REQUEST
@@ -264,23 +265,30 @@ def extend_contract(request, player_id):
         return Response({"error": "Invalid transfer window"}, status=status.HTTP_404_NOT_FOUND)
 
     # 4️⃣ Check the 2-id rule
-    current_id = player.contract_expiry.id if player.contract_expiry else 0
+    if player.contract_expiry:
+        current_id = player.contract_expiry.id
+    else:
+        current_id = current_window.id
+    
     if window.id < current_id + 2:
         return Response(
-            {"error": f"Invalid transfer window selected. Must be exactly 2 after current contract ({current_id})."},
+            {"error": f"New transfer window must be at least 2 greater than current ({current_id})"},
             status=status.HTTP_400_BAD_REQUEST
         )
 
     # 5️⃣ Extend contract
+    had_contract = bool(player.contract_expiry)  # check before overwriting
     player.contract_expiry = window
-    if current_id != 0:
+
+    if had_contract:
         player.contract_renew_bonus = (player.contract_renew_bonus or Decimal("0")) + Decimal("0.5")
     
     player.save(update_fields=["contract_expiry", "contract_renew_bonus"])
 
     return Response({
         "id": player.id,
-        "contract_expiry": str(window)
+        "contract_expiry": str(window),
+        "contract_renew_bonus": str(player.contract_renew_bonus or "0")
     })
 
 # 1️⃣ Team-wise matches (all seasons)

@@ -4,15 +4,18 @@ from django import forms
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.db import transaction
+from django.db.models import Count, Q
+from decimal import Decimal
+from datetime import timedelta
 
 @admin.register(TransferWindow)
 class TransferWindowAdmin(admin.ModelAdmin):
-    list_display = ("season", "year", "is_active")
+    list_display = ("season", "year", "is_active", "is_contract_open")
     list_filter = ("season", "year", "is_active")
     search_fields = ("season", "year")
 
     # optional: make is_active toggleable from list view
-    list_editable = ("is_active",)
+    list_editable = ("is_active", "is_contract_open")
 
 @admin.action(description="Advance to next game week (Active Season Only)")
 def advance_gameweek(modeladmin, request, queryset):
@@ -26,7 +29,7 @@ def advance_gameweek(modeladmin, request, queryset):
         messages.error(request, f"❌ You can only advance the active season ({active_season.season_name}).")
         return
 
-    if active_season.current_gameweek >= 5: #using 7 GW as test case
+    if active_season.current_gameweek >= 38: #using 7 GW as test case
         # If current gameweek is 7 or more, we assume the season has ended
         # Season has ended → deactivate
         active_season.is_season_active = False
@@ -42,10 +45,45 @@ def advance_gameweek(modeladmin, request, queryset):
     active_season.current_gameweek += 1
     active_season.save()
 
-    # Deduct weekly wages for all teams
-    for team in Team.objects.all():
-        team.current_balance = (team.current_balance or 0) - team.weekly_wage_total
-        team.save()
+    # Step 1: annotate teams with number of players who have no contract_expiry
+    teams_with_counts = Team.objects.annotate(
+        no_contract_count=Count('players', filter=Q(players__contract_expiry__isnull=True))
+    )
+
+    # We’ll compute penalty manually to check transfer times
+    updates = []
+    ten_minutes_ago = timezone.now() - timedelta(minutes=10)
+
+    for team in teams_with_counts:
+        penalty_count = 0
+
+        # Step 2: get all players in this team with no contract_expiry
+        players_no_contract = team.players.filter(contract_expiry__isnull=True)
+
+        for player in players_no_contract:
+            # Step 3: find latest transfer to this team
+            last_transfer = (
+                TransferHistory.objects
+                .filter(player=player, to_team=team)
+                .order_by('-transfer_date')
+                .first()
+            )
+
+            if last_transfer:
+                # check if transfer is older than 10 minutes
+                if last_transfer.transfer_date <= ten_minutes_ago:
+                    penalty_count += 1
+            else:
+                # player might have been originally assigned with no transfer history
+                penalty_count += 1
+
+        # Step 4: apply penalty
+        penalty = Decimal('5') * penalty_count
+        new_balance = (team.current_balance or Decimal('0')) - team.weekly_wage_total - penalty
+        team.current_balance = new_balance
+        updates.append(team)
+
+    Team.objects.bulk_update(updates, ['current_balance'])
 
     messages.success(
         request,
@@ -132,12 +170,6 @@ def end_loan(modeladmin, request, queryset):
             )
     messages.success(request, f"Loan ended for {loaned_histories.count()} players.")
 
-# # Then register in TransferHistoryAdmin
-# @admin.register(TransferHistory)
-# class TransferHistoryAdmin(admin.ModelAdmin):
-#     list_display = ('player', 'from_team', 'to_team', 'is_loan', 'is_loan_end', 'season')
-#     actions = [end_loan]  # attach the action here
-
 @admin.register(Player)
 class PlayerAdmin(admin.ModelAdmin):
     search_fields = ('first_name', 'last_name')
@@ -147,7 +179,7 @@ class PlayerAdmin(admin.ModelAdmin):
         'last_name',
         'position',
         'base_price',
-        'bonus_price',
+        'total_base_price',
         'weekly_wage',
         'full_season_wage',
         'is_loan',         
@@ -231,7 +263,7 @@ class TransferHistoryAdmin(admin.ModelAdmin):
 
         obj.season = active_season
         obj.from_team = obj.player.team
-        obj.transfer_date = timezone.now().date()
+        obj.transfer_date = timezone.now()
         obj.player.is_locked = False
 
         if obj.is_loan:
@@ -241,7 +273,8 @@ class TransferHistoryAdmin(admin.ModelAdmin):
         else:
         # Permanent transfer → reset contract expiry
             obj.player.contract_expiry = None
-            obj.player.contract_renew_bonus = 0.0
+            obj.player.contract_renew_bonus = Decimal('0.0')
+            obj.player.was_academy_player = False
         
         obj.player.save(update_fields=['is_locked', 'is_academy_player', 'was_academy_player', 'contract_expiry', 'contract_renew_bonus'])
         super().save_model(request, obj, form, change)

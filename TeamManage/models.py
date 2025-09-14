@@ -21,6 +21,7 @@ class TransferWindow(models.Model):
     season = models.CharField(max_length=10, choices=SEASON_CHOICES)
     year = models.PositiveIntegerField()
     is_active = models.BooleanField(default=False)
+    is_contract_open = models.BooleanField(default=False)
 
     class Meta:
         constraints = [
@@ -88,7 +89,7 @@ class Team(models.Model):
         weekly_wage_total = self.weekly_wage_total if self.weekly_wage_total is not None else Decimal(0)
 
         forecast = current_balance - (weekly_wage_total * Decimal(remaining_weeks))
-        return forecast.quantize(Decimal("0.001"))
+        return forecast.quantize(Decimal("0.0001"))
     
     total_wins = models.PositiveIntegerField(default=0)
     total_losses = models.PositiveIntegerField(default=0)
@@ -166,20 +167,22 @@ class Player(models.Model):
         return f"{self.first_name} {self.last_name}"
 
     @property
-    def bonus_price(self)->Decimal:
-        return (self.base_price or Decimal("0") + self.contract_renew_bonus or Decimal("0"))
+    def total_base_price(self) -> Decimal:
+        return (self.base_price or Decimal("0")) + (self.contract_renew_bonus or Decimal("0"))
 
     @property
-    def weekly_wage(self)->Decimal:
-        if not self.base_price or self.base_price == Decimal("0"):
+    def weekly_wage(self) -> Decimal:
+        total = self.total_base_price
+        if total == 0:
             return Decimal("0")
+        
         factor = Decimal("6000") if self.is_academy_player else Decimal("2000")
-        wage = (self.bonus_price ** 3) / factor
-        return wage.quantize(Decimal("0.001"))
+        wage = (total ** 3) / factor
+        return wage.quantize(Decimal("0.0001"))
 
     @property
-    def full_season_wage(self)->Decimal:
-        return (self.weekly_wage * Decimal("38").quantize(Decimal("0.001")))
+    def full_season_wage(self) -> Decimal:
+        return (self.weekly_wage * Decimal("38")).quantize(Decimal("0.0001"))
 
 class Round(models.Model):
     season = models.ForeignKey(
@@ -293,7 +296,7 @@ class TransferHistory(models.Model):
     )
     to_team = models.ForeignKey('Team', on_delete=models.SET_NULL, null=True, related_name="transfers_in")
     amount = models.DecimalField(max_digits=10, decimal_places=5, default=0)
-    transfer_date = models.DateField(default=timezone.now)
+    transfer_date = models.DateTimeField(default=timezone.now)
     is_loan = models.BooleanField(default=False)
     loan_gameweek = models.IntegerField(null=True, blank=True)
     is_loan_end = models.BooleanField(default=False, editable=False)

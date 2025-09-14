@@ -28,11 +28,11 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['127.0.2.2', '192.168.0.50', '192.168.0.3', 'localhost', '127.0.0.1']
 
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-    }
-}
+# CACHES = {
+#     'default': {
+#         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+#     }
+# }
 
 
 # Default bid expiry (change this for testing vs prod)

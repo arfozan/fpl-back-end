@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid, TransferWindow, NewsPost, TeamSeasonStats
+from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid, TransferWindow, NewsPost, TeamSeasonStats, TransferRequest
 from decimal import Decimal
 
 class PlayerSerializer(serializers.ModelSerializer):
@@ -78,8 +78,7 @@ class TeamSummarySerializer(serializers.ModelSerializer):
     forecast_end_balance = serializers.SerializerMethodField()
     class Meta:
         model = Team
-        fields = ['id', 'name', 'logo', 'manager_name', 'current_balance', 'forecast_end_balance',"total_wins",
-            "total_losses", "total_draws", "win_percentage"]
+        fields = ['id', 'name', 'logo', 'manager_name', 'current_balance', 'forecast_end_balance']
 
     def get_logo(self, obj):
         request = self.context.get('request')
@@ -114,22 +113,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "win_percentage",
         ]
 
-class TeamSeasonStatsSerializer(serializers.ModelSerializer):
-    season_name = serializers.CharField(source="season.season_name", read_only=True)
-
-    class Meta:
-        model = TeamSeasonStats
-        fields = [
-            "id",
-            "team",
-            "season",
-            "season_name",
-            "wins",
-            "losses",
-            "draws",
-            "win_percentage",
-        ]
-
 class TransferHistorySerializer(serializers.ModelSerializer):
     player_name = serializers.CharField(source='player.__str__', read_only=True)
     from_team_name = serializers.CharField(source='from_team.name', read_only=True)
@@ -146,21 +129,20 @@ class TransferHistorySerializer(serializers.ModelSerializer):
         return Decimal(obj.amount or 0)
 
 class MatchSerializer(serializers.ModelSerializer):
-    round_number = serializers.IntegerField(source="round.round_number", read_only=True)
-    season = serializers.CharField(source="round.season.season_name", read_only=True)
     home_team_name = serializers.CharField(source="home_team.name", read_only=True)
     away_team_name = serializers.CharField(source="away_team.name", read_only=True)
 
     class Meta:
         model = Match
-        fields = [
-            "id",
-            "season",
-            "round_number",
-            "home_team", "home_team_name",
-            "away_team", "away_team_name",
-            "home_score", "away_score",
-        ]
+        fields = ["id", "round", "home_team", "away_team", "home_score", "away_score", "home_team_name", "away_team_name",]
+
+class TeamSeasonStatsSerializer(serializers.ModelSerializer):
+    win_percentage = serializers.ReadOnlyField()
+
+    class Meta:
+        model = TeamSeasonStats
+        fields = ["team", "wins", "draws", "losses", "win_percentage"]
+
 
 class BidSerializer(serializers.ModelSerializer):
     player_name = serializers.SerializerMethodField()
@@ -191,6 +173,19 @@ class NewsPostSerializer(serializers.ModelSerializer):
         model = NewsPost
         fields = ['id', 'headline', 'content', 'image', 'date_posted', 'author']
 
+class TransferRequestSerializer(serializers.ModelSerializer):
+    player_name = serializers.StringRelatedField(source="player", read_only=True)
+    to_team_name = serializers.CharField(source="to_team.name", read_only=True)
+    from_team_name = serializers.CharField(source="from_team.name", read_only=True)
 
+    class Meta:
+        model = TransferRequest
+        fields = "__all__"
+        read_only_fields = ("created_by", "status", "created_at", "updated_at", "to_team",
+            "from_team",)
 
-
+    def validate(self, attrs):
+        # optional: check transfer window, contract expiry, etc.
+        if attrs.get("is_loan") and not attrs.get("loan_gameweek"):
+            raise serializers.ValidationError("Loan gameweek required for loan offers.")
+        return attrs

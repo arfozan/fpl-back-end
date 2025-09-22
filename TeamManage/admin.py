@@ -109,16 +109,23 @@ class SeasonConfigAdmin(admin.ModelAdmin):
             self.generate_rounds(obj, request)
 
     def generate_rounds(self, season, request):
-        existing_rounds = Round.objects.count()
         rounds_to_create = []
-
         for i in range(1, 39):  # 1 to 38
             if not Round.objects.filter(round_number=i, season=season).exists():
                 rounds_to_create.append(Round(round_number=i, season=season))
 
         if rounds_to_create:
-            Round.objects.bulk_create(rounds_to_create)
-            self.message_user(request, f"✅ Created {len(rounds_to_create)} rounds for the active season.")
+            created_rounds = Round.objects.bulk_create(rounds_to_create)
+
+            # Create 5 matches for each round
+            matches_to_create = []
+            for rnd in created_rounds:
+                for _ in range(5):
+                    matches_to_create.append(Match(round=rnd))
+            Match.objects.bulk_create(matches_to_create)
+
+            self.message_user(request, f"✅ Created {len(created_rounds)} rounds with {len(matches_to_create)} matches.")
+
 
 
 @admin.register(Team)
@@ -191,14 +198,59 @@ class PlayerAdmin(admin.ModelAdmin):
         if request.GET.get('action') == 'end_loan':
             return qs.filter(is_loan=True)
         return qs
+    
+def update_season_stats(round_obj):
+    for match in round_obj.matches.all():
+        if not all([match.home_team, match.away_team, match.home_score, match.away_score]):
+            continue  # skip incomplete matches
 
+        # Home stats
+        home_stats, _ = TeamSeasonStats.objects.get_or_create(
+            team=match.home_team, season=round_obj.season
+        )
+        # Away stats
+        away_stats, _ = TeamSeasonStats.objects.get_or_create(
+            team=match.away_team, season=round_obj.season
+        )
 
-# admin.py
+        if match.home_score > match.away_score:  # Home win
+            home_stats.wins += 1
+            away_stats.losses += 1
+        elif match.home_score < match.away_score:  # Away win
+            away_stats.wins += 1
+            home_stats.losses += 1
+        else:  # Draw
+            home_stats.draws += 1
+            away_stats.draws += 1
+
+        home_stats.save()
+        away_stats.save()
+
+class MatchInline(admin.TabularInline):
+    model = Match
+    extra = 0  # no extra empty rows, since we already create 5
+    fields = ("home_team", "away_team", "home_score", "away_score")
+    show_change_link = True
+
 @admin.register(Round)
 class RoundAdmin(admin.ModelAdmin):
-    list_display = ("round_number", "date", "season")
-    list_filter = ("season",)
-    ordering = ("season", "round_number")
+    list_display = ("season", "round_number", "date", "is_ended")
+    list_filter = ("season", "is_ended")
+    inlines = [MatchInline]
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+
+        obj = form.instance
+        if obj.is_ended:
+            for match in obj.matches.all():
+                if not match.home_team or not match.away_team:
+                    raise ValidationError("All matches must have home and away teams before ending the round.")
+                if match.home_score is None or match.away_score is None:
+                    raise ValidationError("All matches must have scores before ending the round.")
+
+            # if passes, update stats
+            update_season_stats(obj)
 
 
 @admin.register(Match)
@@ -238,46 +290,16 @@ class MatchAdmin(admin.ModelAdmin):
 
 @admin.register(TransferHistory)
 class TransferHistoryAdmin(admin.ModelAdmin):
-    list_display = ('player', 'from_team', 'to_team', 'amount', 'transfer_date', 'is_loan', 'loan_gameweek', 'loan_end_flag')
-    readonly_fields = ('from_team', 'season')
-    fields = ('season', 'player', 'to_team', 'amount', 'is_loan', 'loan_gameweek', 'description', 'from_team')
-    autocomplete_fields = ['player', 'to_team']
-
+    list_display = (
+        'player', 'from_team', 'to_team', 'amount',
+        'transfer_date', 'is_loan', 'loan_gameweek', 'loan_end_flag'
+    )
+    readonly_fields = [f.name for f in TransferHistory._meta.fields]  # all fields readonly
     actions = [end_loan]
 
     def loan_end_flag(self, obj):
         return "✅" if obj.is_loan_end else ""
     loan_end_flag.short_description = "Loan End"
-
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == 'player':
-            # Only players that currently belong to a team (non-free agents)
-            kwargs["queryset"] = Player.objects.filter(team__isnull=False)
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
-
-    def save_model(self, request, obj, form, change):
-        active_season = SeasonConfig.objects.filter(is_season_active=True).first()
-        if not active_season:
-            messages.error(request, "No active season found. Please set an active season in SeasonConfig.")
-            return
-
-        obj.season = active_season
-        obj.from_team = obj.player.team
-        obj.transfer_date = timezone.now()
-        obj.player.is_locked = False
-
-        if obj.is_loan:
-            obj.player.was_academy_player = obj.player.is_academy_player
-            obj.player.is_academy_player = False
-        
-        else:
-        # Permanent transfer → reset contract expiry
-            obj.player.contract_expiry = None
-            obj.player.contract_renew_bonus = Decimal('0.0')
-            obj.player.was_academy_player = False
-        
-        obj.player.save(update_fields=['is_locked', 'is_academy_player', 'was_academy_player', 'contract_expiry', 'contract_renew_bonus'])
-        super().save_model(request, obj, form, change)
 
 @admin.register(WeeklyBonus)
 class WeeklyBonusAdmin(admin.ModelAdmin):
@@ -303,6 +325,3 @@ class BidAdmin(admin.ModelAdmin):
     list_display = ("player", "team", "amount", "created_at", "expires_at")
     list_filter = ("team", "player")
     search_fields = ("player__name", "team__name")
-
-
-

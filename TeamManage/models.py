@@ -91,11 +91,6 @@ class Team(models.Model):
         forecast = current_balance - (weekly_wage_total * Decimal(remaining_weeks))
         return forecast.quantize(Decimal("0.0001"))
     
-    total_wins = models.PositiveIntegerField(default=0)
-    total_losses = models.PositiveIntegerField(default=0)
-    total_draws = models.PositiveIntegerField(default=0)
-    win_percentage = models.FloatField(default=0.0)
-
     def update_stats(self):
         """Recalculate overall stats from all matches."""
         from django.db.models import Q, F
@@ -111,16 +106,11 @@ class Team(models.Model):
             (Q(home_team=self) & Q(home_score__lt=F("away_score"))) |
             (Q(away_team=self) & Q(away_score__lt=F("home_score")))
         ).count()
-
         draws = matches.filter(home_score=F("away_score")).count()
-
-        total = wins + losses + draws
-        win_pct = (wins / total * 100) if total > 0 else 0
 
         self.total_wins = wins
         self.total_losses = losses
         self.total_draws = draws
-        self.win_percentage = round(win_pct, 2)
         self.save(update_fields=["total_wins", "total_losses", "total_draws", "win_percentage"])
 
 class Player(models.Model):
@@ -192,6 +182,7 @@ class Round(models.Model):
     )
     round_number = models.PositiveIntegerField()
     date = models.DateField(null=True, blank=True)
+    is_ended = models.BooleanField(default=False)  
 
     class Meta:
         unique_together = ("season", "round_number")
@@ -206,7 +197,7 @@ class Round(models.Model):
             round_number=self.round_number, season = self.season
         ).exists():
             raise ValidationError(f"Round {self.round_number} already exists in the active season.")
-
+        
     def __str__(self):
         return f"{self.season.season_name} - GW{self.round_number} ({self.date})"
 
@@ -220,12 +211,14 @@ class Match(models.Model):
     home_team = models.ForeignKey(
         Team,
         on_delete=models.CASCADE,
-        related_name="home_matches"
+        related_name="home_matches",
+        null=True, blank=True
     )
     away_team = models.ForeignKey(
         Team,
         on_delete=models.CASCADE,
-        related_name="away_matches"
+        related_name="away_matches",
+        null=True, blank=True
     )
     home_score = models.PositiveIntegerField(null=True, blank=True)
     away_score = models.PositiveIntegerField(null=True, blank=True)
@@ -246,55 +239,45 @@ class Match(models.Model):
         return f"GW{self.round.round_number}: {self.home_team} vs {self.away_team}"
     
 class TeamSeasonStats(models.Model):
-    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="season_stats")
-    season = models.ForeignKey(SeasonConfig, on_delete=models.CASCADE)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="season_stats")
+    season = models.ForeignKey("SeasonConfig", on_delete=models.CASCADE, related_name="team_stats")
+
     wins = models.PositiveIntegerField(default=0)
     losses = models.PositiveIntegerField(default=0)
     draws = models.PositiveIntegerField(default=0)
-    win_percentage = models.FloatField(default=0.0)
 
     class Meta:
         unique_together = ("team", "season")
 
-    def update_stats(self):
-        """Recalculate stats for this team in this season."""
-        from django.db.models import Q, F
+    @property
+    def total_matches(self):
+        return self.wins + self.losses + self.draws
 
-        matches = Match.objects.filter(
-            round__season=self.season
-        ).filter(
-            Q(home_team=self.team) | Q(away_team=self.team)
-        )
+    @property
+    def win_percentage(self):
+        if self.total_matches == 0:
+            return 0
+        return round((self.wins / self.total_matches) * 100, 2)
 
-        wins = matches.filter(
-            (Q(home_team=self.team) & Q(home_score__gt=F("away_score"))) |
-            (Q(away_team=self.team) & Q(away_score__gt=F("home_score")))
-        ).count()
+    def __str__(self):
+        return f"{self.team} - {self.season.season_name} ({self.wins}W/{self.draws}D/{self.losses}L)"
 
-        losses = matches.filter(
-            (Q(home_team=self.team) & Q(home_score__lt=F("away_score"))) |
-            (Q(away_team=self.team) & Q(away_score__lt=F("home_score")))
-        ).count()
-
-        draws = matches.filter(home_score=F("away_score")).count()
-
-        total = wins + losses + draws
-        win_pct = (wins / total * 100) if total > 0 else 0
-
-        self.wins = wins
-        self.losses = losses
-        self.draws = draws
-        self.win_percentage = round(win_pct, 2)
-        self.save()
-
+from decimal import Decimal
+from django.core.exceptions import ValidationError
+from django.db import models
+from django.utils import timezone
 
 class TransferHistory(models.Model):
-    season = models.ForeignKey(SeasonConfig, on_delete=models.CASCADE)
-    player = models.ForeignKey(Player, on_delete=models.CASCADE)
+    season = models.ForeignKey('SeasonConfig', on_delete=models.CASCADE)
+    player = models.ForeignKey('Player', on_delete=models.CASCADE)
     from_team = models.ForeignKey(
-        'Team', on_delete=models.SET_NULL, null=True, related_name="transfers_out", editable=False
+        'Team', on_delete=models.SET_NULL, null=True,
+        related_name="transfers_out", editable=False
     )
-    to_team = models.ForeignKey('Team', on_delete=models.SET_NULL, null=True, related_name="transfers_in")
+    to_team = models.ForeignKey(
+        'Team', on_delete=models.SET_NULL, null=True,
+        related_name="transfers_in"
+    )
     amount = models.DecimalField(max_digits=10, decimal_places=5, default=0)
     transfer_date = models.DateTimeField(default=timezone.now)
     is_loan = models.BooleanField(default=False)
@@ -303,48 +286,23 @@ class TransferHistory(models.Model):
     description = models.TextField(blank=True, null=True)
 
     def clean(self):
-        # Prevent same team transfer
+        # Only keep lightweight checks — no side effects
         if self.from_team and self.to_team and self.from_team == self.to_team:
             raise ValidationError("From team and To team cannot be the same.")
-
-        # Prevent transferring already loaned-out players
-        if self.player.is_loan:
-            raise ValidationError(f"{self.player} is currently on loan and cannot be transferred.")
-
-        # Loan transfer must have loan_gameweek
         if self.is_loan and not self.loan_gameweek:
             raise ValidationError("Loan gameweek must be specified for loan deals.")
 
     def save(self, *args, **kwargs):
-        is_new = self.pk is None
-
-        if is_new and not self.from_team and self.player.team:
+        # For a new record, default from_team to the player's current team
+        if self.pk is None and not self.from_team:
             self.from_team = self.player.team
 
-        # Run validations before saving
+        # Only validate + save — no player moves, no balance updates
         self.full_clean()
+        super().save(*args, **kwargs)
 
-        super().save(*args, **kwargs)  # Save transfer first
-
-        if is_new:
-            if self.is_loan:
-                self.player.is_loan = True
-                self.player.loan_from_team = self.from_team
-                self.player.team = self.to_team
-            else:
-                self.player.team = self.to_team
-                self.player.is_loan = False
-                self.player.loan_from_team = None
-            self.player.save(update_fields=["team", "is_loan", "loan_from_team"])
-
-            # Update balances
-            if self.from_team:
-                self.from_team.current_balance = (self.from_team.current_balance or Decimal("0")) + (self.amount or Decimal("0"))
-                self.from_team.save(update_fields=["current_balance"])
-
-            if self.to_team:
-                self.to_team.current_balance = (self.to_team.current_balance or Decimal("0")) - (self.amount or Decimal("0"))
-                self.to_team.save(update_fields=["current_balance"])
+    def __str__(self):
+        return f"{self.player} from {self.from_team} to {self.to_team} ({self.amount})"
 
 class WeeklyBonus(models.Model):
     season = models.ForeignKey("SeasonConfig", on_delete=models.CASCADE, editable=False)
@@ -489,3 +447,44 @@ class NewsPost(models.Model):
     def __str__(self):
         return f"{self.headline} by {self.author.username}"
 
+
+# Personal Deal Model
+class TransferRequest(models.Model):
+    STATUS_PENDING = "PENDING"
+    STATUS_ACCEPTED = "ACCEPTED"
+    STATUS_REJECTED = "REJECTED"
+    STATUS_CANCELLED = "CANCELLED"
+    STATUS_EXPIRED = "EXPIRED"
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_ACCEPTED, "Accepted"),
+        (STATUS_REJECTED, "Rejected"),
+        (STATUS_CANCELLED, "Cancelled"),
+        (STATUS_EXPIRED, "Expired"),
+    ]
+
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="transfer_requests_made")
+    season = models.ForeignKey(SeasonConfig, on_delete=models.CASCADE, null=True, blank=True)
+    player = models.ForeignKey(Player, on_delete=models.CASCADE, related_name="transfer_requests")
+    from_team = models.ForeignKey('Team', on_delete=models.SET_NULL, null=True, related_name="transfer_requests_received")
+    to_team = models.ForeignKey('Team', on_delete=models.CASCADE, related_name="transfer_requests_sent")
+    amount = models.DecimalField(max_digits=10, decimal_places=1, default=Decimal("0"))
+    is_loan = models.BooleanField(default=False)
+    loan_gameweek = models.IntegerField(null=True, blank=True)
+    message = models.TextField(blank=True, null=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self):
+        if self.from_team and self.to_team and self.from_team == self.to_team:
+            raise ValidationError("From team and To team cannot be the same.")
+        if self.is_loan and not self.loan_gameweek:
+            raise ValidationError("Loan gameweek must be specified for loan deals.")
+        if self.amount and self.amount <= 0:
+            raise ValidationError("Amount cannot be zero/negative.")
+
+    def __str__(self):
+        return f"Request {self.pk} {self.player} {self.from_team} -> {self.to_team} ({self.status})"

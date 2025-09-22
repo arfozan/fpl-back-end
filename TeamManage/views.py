@@ -1,13 +1,15 @@
 from rest_framework import viewsets
 from rest_framework.permissions import AllowAny
-from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid, NewsPost, TeamSeasonStats
+from .models import (Team, Player, SeasonConfig, TransferHistory,
+                     Match, Bid, NewsPost, TeamSeasonStats, TransferWindow, TransferRequest)
 from .serializers import (
     TeamSummarySerializer, PlayerSerializer,
     SeasonConfigSerializer, TransferHistorySerializer,
     MatchSerializer, BidSerializer, TransferWindow, NewsPostSerializer, TeamSeasonStatsSerializer,
-    TransferWindowSerializer,
+    TransferWindowSerializer, TransferRequestSerializer
 )
-from django.db.models import Q, Max
+from django.db import models
+from django.db.models import Q, Max, Sum
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -35,26 +37,32 @@ def team_players(request, team_id):
 
     position_order = {'GK': 1, 'DF': 2, 'MF': 3, 'FW': 4}
 
-    players = Player.objects.filter(team=team).order_by(
+    players_qs = Player.objects.filter(team=team).order_by(
         *(["position"] if position_order is None else [])
     )
 
-    players = sorted(players, key=lambda p: position_order.get(p.position, 99))
+    total_weekly_wage = Decimal('0')
+    players_list = []
+    academy_players_count = 0
+    main_players_count = 0
 
-    serializer = PlayerSerializer(players, many=True)
-    total_weekly_wage = sum(p.weekly_wage for p in players)
-    
+    for p in players_qs:
+        total_weekly_wage += p.weekly_wage
+        players_list.append(p)
+        if p.is_academy_player:
+            academy_players_count += 1
+        else:
+            main_players_count += 1
 
-    if players:
-        main_players_count = sum(
-            1 for p in players if not p.is_academy_player
-        )
+    loaned_out_count = Player.objects.filter(
+        loan_from_team=team, is_loan=True, is_academy_player=False
+    ).count()
 
-        academy_players_count = sum(
-            1 for p in players if p.is_academy_player
-        )
-    loaned_out_count = Player.objects.filter(loan_from_team=team, is_loan=True, is_academy_player=False).count()
     main_players_count += loaned_out_count
+
+    players_sorted = sorted(players_list, key=lambda p: position_order.get(p.position, 99))
+
+    serializer = PlayerSerializer(players_sorted, many=True)
 
     return Response({
         'team_name': team.name,
@@ -67,13 +75,13 @@ def team_players(request, team_id):
         'players': serializer.data,
     })
 
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_my_team(request):
     try:
         team = Team.objects.get(user_name=request.user)
         return Response({
+            "id": team.id,
             "username": request.user.username,
             "name": team.name,
             "manager_name": team.manager_name,
@@ -111,8 +119,6 @@ def update_team_images(request):
 
     except Team.DoesNotExist:
         return Response({"error": "Team not found"}, status=404)
-
-
 
 class SeasonConfigViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = SeasonConfig.objects.all()
@@ -166,7 +172,6 @@ def get_serializer_context(self):
     context['team_id'] = self.kwargs.get('team_id')
     return context
 
-
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def my_team_players(request):
@@ -201,7 +206,7 @@ def list_transfer_windows(request):
 @permission_classes([IsAuthenticated])
 def toggle_academy(request, player_id):
     # Check if any TransferWindow is active
-    if not TransferWindow.objects.filter(is_active=True).exists():
+    if not TransferWindow.objects.filter(is_contract_open=True).exists():
         return Response(
             {"error": "No active transfer window. Cannot toggle academy."},
             status=status.HTTP_400_BAD_REQUEST
@@ -314,18 +319,6 @@ def team_matches(request, team_id):
     serializer = MatchSerializer(matches, many=True)
     return Response(serializer.data)
 
-
-# 2️⃣ Active season matches only
-@api_view(['GET'])
-def active_season_matches(request):
-    active_season = SeasonConfig.get_active_season()
-    if not active_season:
-        return Response({"error": "No active season found"}, status=status.HTTP_404_NOT_FOUND)
-
-    matches = Match.objects.filter(round__season=active_season).order_by("round__round_number")
-    serializer = MatchSerializer(matches, many=True)
-    return Response(serializer.data)
-
 # ✅ Overall stats for a team
 @api_view(["GET"])
 def team_overall_stats(request, team_id):
@@ -337,13 +330,36 @@ def team_overall_stats(request, team_id):
     serializer = TeamSummarySerializer(team)
     return Response(serializer.data)
 
-
-# ✅ Season-wise stats for a team
 @api_view(["GET"])
-def team_season_stats(request, team_id):
-    stats = TeamSeasonStats.objects.filter(team_id=team_id).select_related("season")
-    serializer = TeamSeasonStatsSerializer(stats, many=True)
-    return Response(serializer.data)
+def season_team_details(request, season_id, team_id):
+    """Return all matches of a team in a season (optionally filter by opponent)"""
+    opponent_id = request.query_params.get("opponent_team_id")
+
+    qs = Match.objects.filter(
+        round__season_id=season_id
+    ).filter(
+        models.Q(home_team_id=team_id) | models.Q(away_team_id=team_id)
+    ).select_related("round", "home_team", "away_team")
+
+    if opponent_id and opponent_id != "all":
+        qs = qs.filter(
+            models.Q(home_team_id=opponent_id) | models.Q(away_team_id=opponent_id)
+        )
+
+    matches = MatchSerializer(qs, many=True).data
+
+    try:
+        stats = TeamSeasonStats.objects.get(season_id=season_id, team_id=team_id)
+        stats_data = TeamSeasonStatsSerializer(stats).data
+    except TeamSeasonStats.DoesNotExist:
+        stats_data = None
+
+    return Response({
+        "season_id": season_id,
+        "team_id": team_id,
+        "stats": stats_data,
+        "matches": matches,
+    })
 
 @api_view(["GET"])
 def players_list(request):
@@ -491,6 +507,7 @@ def current_status(request):
     season_data = None
     if season:
         season_data = {
+            "id": season.id,
             "season_name": season.season_name,
             "current_gameweek": season.current_gameweek if season.current_gameweek > 0 else None,
         }
@@ -522,3 +539,247 @@ class NewsPostDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = NewsPost.objects.all()
     serializer_class = NewsPostSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+# Personal Deal View
+from rest_framework.permissions import BasePermission
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def my_team(request):
+    team = Team.objects.filter(user=request.user).first()
+    if not team:
+        return Response({"detail": "No team found"}, status=404)
+    return Response(TeamSummarySerializer(team).data)
+
+class IsTeamManagerOfFromTeam(BasePermission):
+    """
+    Allow action if request.user is manager/admin of transfer_request.from_team
+    You must adapt `is_manager` check to your Team/User relation.
+    """
+    def has_object_permission(self, request, view, obj):
+        # allow if the user is the sender or is a manager of the from_team
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return True
+        # Only the manager of the from_team may accept/reject
+        return obj.from_team and obj.from_team.user_name == request.user
+
+class TransferRequestViewSet(viewsets.ModelViewSet):
+    serializer_class = TransferRequestSerializer
+    permission_classes = [IsAuthenticated]  # add default perms as needed
+    def get_queryset(self):
+        user = self.request.user
+        # Admin/staff can see all
+        # Manager can see requests involving their team only
+        try:
+            team = Team.objects.get(user_name=user)
+        except Team.DoesNotExist:
+            return TransferRequest.objects.none()
+
+        qs = TransferRequest.objects.select_related("player", "from_team", "to_team")
+        qtype = self.request.query_params.get("type")
+        if qtype == "incoming":
+            return qs.filter(to_team=team)      
+        elif qtype == "outgoing":
+            return qs.filter(from_team=team)    
+        return qs.filter(Q(from_team=team) | Q(to_team=team))
+
+
+    def perform_create(self, serializer):
+        user_team = getattr(self.request.user, "team", None)
+        if not user_team:
+            raise ValidationError("Logged-in user is not assigned to a team.")
+        player_id = self.request.data.get("player")
+        player = Player.objects.get(pk=player_id)
+        current_season = SeasonConfig.objects.filter(is_season_active=True).first()
+
+        if not current_season:
+            raise ValidationError("No active season.")
+        current_gameweek = current_season.current_gameweek
+
+        # ---- New offer details ----
+        player_id = self.request.data.get("player")
+        player = Player.objects.select_related("team").get(pk=player_id)
+        new_offer_amount = Decimal(self.request.data.get("amount", "0"))
+        new_player_wage = player.weekly_wage * Decimal(38 - current_gameweek)
+
+        # ---- Running commitments ----
+        running_commitments = Decimal("0")
+
+        # 1️⃣ Pending transfer requests already sent by this team
+        pending_transfers = TransferRequest.objects.filter(
+            from_team=user_team, status=TransferRequest.STATUS_PENDING
+        ).select_related("player")
+        for tr in pending_transfers:
+            remaining_wage = tr.player.weekly_wage * Decimal(38 - current_gameweek)
+            running_commitments += tr.amount + remaining_wage
+
+        # Active bids (unexpired) for this team
+        active_bids = Bid.objects.filter(
+            team=user_team,
+            expires_at__gt=timezone.now()
+        ).select_related("player")  # so we can access player in loop
+
+        active_bids_total = Decimal("0")
+        for bid in active_bids:
+            # Calculate remaining wage for the season
+            remaining_wage = bid.player.weekly_wage() * Decimal(38 - current_gameweek)
+            # Add both the current bid amount AND the future wage
+            active_bids_total += bid.amount + remaining_wage
+
+        running_commitments += active_bids_total
+
+        # ---- Forecast check ----
+        forecast_end_balance = user_team.forecast_end_balance
+        total_future_commitment = running_commitments + new_offer_amount + new_player_wage
+
+        if forecast_end_balance - total_future_commitment <= Decimal("-15"):
+            raise ValidationError(
+                "Insufficient forecast balance. Cannot place this transfer request."
+            )
+
+        serializer.save(
+            created_by=self.request.user,
+            to_team=user_team,
+            from_team=player.team,      # <-- auto-fill from player
+            season=current_season       # <-- optional but common
+        )
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return super().create(request, *args, **kwargs)
+    
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
+    def cancel(self, request, pk=None):
+        tr = self.get_object()
+        # Only the team that SENT the request (to_team manager) can cancel
+        try:
+            team = Team.objects.get(user_name=request.user)
+        except Team.DoesNotExist:
+            return Response({"detail": "You are not assigned to a team."},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        if tr.to_team != team:
+            return Response({"detail": "Not allowed to cancel this request."},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        if tr.status != TransferRequest.STATUS_PENDING:
+            return Response({"detail": "Only pending requests can be cancelled."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        tr.status = TransferRequest.STATUS_REJECTED
+        tr.save(update_fields=["status", "updated_at"])
+        tr.delete()
+        return Response({"detail": "Transfer request cancelled."},
+                        status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated, IsTeamManagerOfFromTeam])
+    def accept(self, request, pk=None):
+        tr = self.get_object()
+        if tr.status != TransferRequest.STATUS_PENDING:
+            return Response({"detail": "TransferRequest not pending."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            th = accept_transfer_request(tr, accepted_by=request.user)
+        except ValidationError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        # return created TransferHistory data (you can use serializer)
+        return Response({"detail":"Accepted","transfer_history_id": th.id}, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
+    def reject(self, request, pk=None):
+        tr = self.get_object()
+        # only from_team manager or creator can reject/cancel
+        # ... permission logic ...
+        tr.status = TransferRequest.STATUS_REJECTED
+        tr.save(update_fields=["status","updated_at"])
+        tr.delete()
+        return Response({"detail": "Rejected."}, status=status.HTTP_200_OK)
+
+# helpers.py (or inside views)
+from django.db import transaction
+from django.core.exceptions import ValidationError
+
+def accept_transfer_request(tr: TransferRequest, accepted_by):
+    from decimal import Decimal
+    from django.utils import timezone
+
+    with transaction.atomic():
+        # Lock player and teams to prevent race conditions
+        player = Player.objects.select_for_update().get(pk=tr.player.pk)
+        from_team = Team.objects.select_for_update().get(pk=tr.from_team.pk) if tr.from_team else None
+        to_team = Team.objects.select_for_update().get(pk=tr.to_team.pk)
+
+        # Re-validate server-side conditions
+        if tr.status != TransferRequest.STATUS_PENDING:
+            raise ValidationError("Request not pending.")
+        if player.team != from_team:
+            raise ValidationError("Player no longer belongs to the expected team.")
+        if tr.is_loan and player.is_loan:
+            raise ValidationError("Player already on loan.")
+        amount = tr.amount or Decimal("0")
+
+        # Create TransferHistory (this model's save handles player/team updates)
+        th = TransferHistory.objects.create(
+            season = tr.season or SeasonConfig.objects.filter(is_season_active=True).first(),
+            player = player,
+            from_team = from_team,
+            to_team = to_team,
+            amount = amount,
+            transfer_date = timezone.now(),
+            is_loan = tr.is_loan,
+            loan_gameweek = tr.loan_gameweek,
+        )
+
+        # --- Update player state ---
+        if tr.is_loan:
+            # Snapshot academy state before moving
+            player.was_academy_player = player.is_academy_player
+            player.is_loan = True
+            player.loan_from_team = from_team
+            player.team = to_team
+            player.is_academy_player = False  # loans usually into senior squad
+        else:
+            player.team = to_team
+            player.is_loan = False
+            player.loan_from_team = None
+            player.is_academy_player = False  # purchased players normally not academy
+            player.was_academy_player = False
+
+        player.save(update_fields=["team", "is_loan", "loan_from_team", "is_academy_player", "was_academy_player"])
+
+        # --- Update balances ---
+        if from_team:
+            from_team.current_balance = (from_team.current_balance or Decimal("0")) + amount
+            from_team.save(update_fields=["current_balance"])
+        if to_team:
+            to_team.current_balance = (to_team.current_balance or Decimal("0")) - amount
+            to_team.save(update_fields=["current_balance"])
+
+        # Mark request accepted
+        tr.status = TransferRequest.STATUS_ACCEPTED
+        tr.save(update_fields=["status", "updated_at"])
+        tr.delete()
+
+        return th
+    
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def available_players(request):
+    user_team = Team.objects.filter(user_name=request.user).first()
+
+    qs = Player.objects.filter(team__isnull=False, is_loan=False)
+
+    if user_team:
+        qs = qs.exclude(team=user_team)
+
+    data = [
+        {
+            "id": p.id,
+            "full_name": p.first_name + " " + p.last_name,
+            "team": p.team.name if p.team else None,
+            "position": p.position,
+        }
+        for p in qs
+    ]
+    return Response(data)

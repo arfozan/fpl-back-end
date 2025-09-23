@@ -1,16 +1,10 @@
 from django.db import models
-from django.core.validators import RegexValidator
+from django.db import transaction
 from django.contrib.auth.models import User
-from django.core.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError
 from django.utils import timezone
 from decimal import Decimal
 from django.conf import settings
-
-# Validator for "Summer 2026" or "Winter 2028"
-window_validator = RegexValidator(
-    regex=r'^(Summer|Winter) \d{4}$',
-    message='Format must be like: Summer 2026 or Winter 2028'
-)
 
 class TransferWindow(models.Model):
     SEASON_CHOICES = [
@@ -30,9 +24,33 @@ class TransferWindow(models.Model):
         ordering = ["-id"]
 
     def save(self, *args, **kwargs):
-        # If this window is set active, deactivate others
-        if self.is_active:
-            TransferWindow.objects.filter(is_active=True).exclude(id=self.id).update(is_active=False)
+        """
+        When this window is activated:
+        1️⃣ Deactivate all other windows.
+        2️⃣ Automatically open contracts (is_contract_open=True).
+        3️⃣ Free all players whose contract_expiry matches this window.
+        """
+        with transaction.atomic():
+            if self.is_active:
+                # Deactivate other active windows
+                TransferWindow.objects.filter(is_active=True).exclude(id=self.id).update(is_active=False)
+
+                # Always open contracts when active
+                self.is_contract_open = True
+
+                # Save first so self.id is available for Player updates
+                super().save(*args, **kwargs)
+
+                # Update players whose contract expires in this window
+                from TeamManage.models import Player  # ✅ Replace with actual app name
+                Player.objects.filter(contract_expiry=self).update(
+                    team=None,
+                    is_locked=False,
+                    was_locked=False,
+                    is_transfer_lock=False,
+                    contract_renew_bonus=0
+                )
+                return  # ✅ Important to avoid saving twice
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -128,6 +146,8 @@ class Player(models.Model):
     position = models.CharField(max_length=2, choices=POSITIONS)
     bonus_earning = models.DecimalField(max_digits=10, decimal_places=5, default=0, help_text="Total bonus earned by the player")
     is_locked = models.BooleanField(default=False)
+    was_locked = models.BooleanField(default=False)
+    is_transfer_lock = models.BooleanField(default=False)
 
     team = models.ForeignKey(
         Team,
@@ -138,7 +158,7 @@ class Player(models.Model):
     )
 
     base_price = models.DecimalField(max_digits=10, decimal_places=5 , default=0)
-    contract_renew_bonus = models.DecimalField(max_digits=10, decimal_places=5, default=0)
+    contract_renew_bonus = models.DecimalField(max_digits=4, decimal_places=1, default=0)
     contract_expiry = models.ForeignKey(
         "TransferWindow",
         on_delete=models.SET_NULL,
@@ -266,6 +286,7 @@ from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
+from datetime import timedelta
 
 class TransferHistory(models.Model):
     season = models.ForeignKey('SeasonConfig', on_delete=models.CASCADE)
@@ -485,6 +506,11 @@ class TransferRequest(models.Model):
             raise ValidationError("Loan gameweek must be specified for loan deals.")
         if self.amount and self.amount <= 0:
             raise ValidationError("Amount cannot be zero/negative.")
+        
+    def save(self, *args, **kwargs):
+        if not self.expires_at:
+            self.expires_at = timezone.now() + timedelta(hours=24)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Request {self.pk} {self.player} {self.from_team} -> {self.to_team} ({self.status})"

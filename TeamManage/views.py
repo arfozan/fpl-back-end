@@ -18,9 +18,10 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework import generics, permissions, status
 from rest_framework.decorators import action
 from django.utils import timezone
-from datetime import timedelta
 from decimal import Decimal
 from django.conf import settings
+from rest_framework.exceptions import ValidationError
+
 
 @api_view(['GET'])
 def get_all_teams_summary(request):
@@ -277,7 +278,7 @@ def extend_contract(request, player_id):
     
     if window.id < current_id + 2:
         return Response(
-            {"error": f"New transfer window must be at least 2 greater than current ({current_id})"},
+            {"detail": "Minimum Contract should be 1 year (prior 2 transfer window)"},
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -399,9 +400,10 @@ def create_bid(request):
     if not existing_bid:
     # First bid logic
         active_window = TransferWindow.objects.filter(is_active=True).first()
-        print("DEBUG:", player.contract_expiry_id, active_window.id if active_window else None)
+        if not active_window:
+            raise ValidationError({"error": ["No active transfer window. New bidding is closed."]})
 
-        if active_window and player.contract_expiry_id == active_window.id:
+        if player.contract_expiry_id == active_window.id:
             min_bid = Decimal("0")  # free transfer for first bid
         else:
             min_bid = player.base_price
@@ -567,9 +569,9 @@ class TransferRequestViewSet(viewsets.ModelViewSet):
     serializer_class = TransferRequestSerializer
     permission_classes = [IsAuthenticated]  # add default perms as needed
     def get_queryset(self):
+        TransferRequest.objects.filter(expires_at__lt=timezone.now()).delete()
         user = self.request.user
-        # Admin/staff can see all
-        # Manager can see requests involving their team only
+
         try:
             team = Team.objects.get(user_name=user)
         except Team.DoesNotExist:
@@ -583,15 +585,17 @@ class TransferRequestViewSet(viewsets.ModelViewSet):
             return qs.filter(from_team=team)    
         return qs.filter(Q(from_team=team) | Q(to_team=team))
 
-
     def perform_create(self, serializer):
         user_team = getattr(self.request.user, "team", None)
         if not user_team:
             raise ValidationError("Logged-in user is not assigned to a team.")
         player_id = self.request.data.get("player")
         player = Player.objects.get(pk=player_id)
-        current_season = SeasonConfig.objects.filter(is_season_active=True).first()
+        if player.is_transfer_lock:  # or player.is_locked if that's your actual field
+            raise ValidationError({"error": ["Player already transferred once in this Transfer Window."]})
 
+        
+        current_season = SeasonConfig.objects.filter(is_season_active=True).first()
         if not current_season:
             raise ValidationError("No active season.")
         current_gameweek = current_season.current_gameweek
@@ -633,8 +637,9 @@ class TransferRequestViewSet(viewsets.ModelViewSet):
         total_future_commitment = running_commitments + new_offer_amount + new_player_wage
 
         if forecast_end_balance - total_future_commitment <= Decimal("-15"):
-            raise ValidationError(
-                "Insufficient forecast balance. Cannot place this transfer request."
+            raise ValidationError({
+                "Error": ["Insufficient balance. Cannot place this transfer request."]
+            }
             )
 
         serializer.save(
@@ -679,6 +684,14 @@ class TransferRequestViewSet(viewsets.ModelViewSet):
         tr = self.get_object()
         if tr.status != TransferRequest.STATUS_PENDING:
             return Response({"detail": "TransferRequest not pending."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # check contract expiry first
+        player = tr.player  # or tr.player_id if you store differently
+        if not player.contract_expiry:
+            return Response(
+                {"detail": "Please define contract length of player before transfer."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         try:
             th = accept_transfer_request(tr, accepted_by=request.user)
         except ValidationError as e:
@@ -689,8 +702,6 @@ class TransferRequestViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
     def reject(self, request, pk=None):
         tr = self.get_object()
-        # only from_team manager or creator can reject/cancel
-        # ... permission logic ...
         tr.status = TransferRequest.STATUS_REJECTED
         tr.save(update_fields=["status","updated_at"])
         tr.delete()
@@ -698,8 +709,6 @@ class TransferRequestViewSet(viewsets.ModelViewSet):
 
 # helpers.py (or inside views)
 from django.db import transaction
-from django.core.exceptions import ValidationError
-
 def accept_transfer_request(tr: TransferRequest, accepted_by):
     from decimal import Decimal
     from django.utils import timezone
@@ -726,6 +735,7 @@ def accept_transfer_request(tr: TransferRequest, accepted_by):
             from_team = from_team,
             to_team = to_team,
             amount = amount,
+            description = tr.message,
             transfer_date = timezone.now(),
             is_loan = tr.is_loan,
             loan_gameweek = tr.loan_gameweek,
@@ -735,18 +745,27 @@ def accept_transfer_request(tr: TransferRequest, accepted_by):
         if tr.is_loan:
             # Snapshot academy state before moving
             player.was_academy_player = player.is_academy_player
+            player.was_locked = player.is_locked
             player.is_loan = True
             player.loan_from_team = from_team
             player.team = to_team
-            player.is_academy_player = False  # loans usually into senior squad
+            player.is_academy_player = True
+            player.is_transfer_lock =True
         else:
             player.team = to_team
             player.is_loan = False
             player.loan_from_team = None
-            player.is_academy_player = False  # purchased players normally not academy
+            player.was_locked = False
+            player.is_locked = False
+            player.is_academy_player = True
             player.was_academy_player = False
+            player.is_transfer_lock = True
+            player.contract_renew_bonus = Decimal(0.0)
+            player.contract_expiry = None
 
-        player.save(update_fields=["team", "is_loan", "loan_from_team", "is_academy_player", "was_academy_player"])
+        player.save(update_fields=["team", "is_loan", "loan_from_team", "was_locked", 
+                                   "is_locked", "is_academy_player", "was_academy_player", 
+                                   "is_transfer_lock", "contract_renew_bonus", "contract_expiry"])
 
         # --- Update balances ---
         if from_team:

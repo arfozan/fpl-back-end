@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid, TransferWindow, NewsPost, TeamSeasonStats, TransferRequest
 from decimal import Decimal
+from rest_framework.exceptions import ValidationError
 
 class PlayerSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
@@ -177,15 +178,38 @@ class TransferRequestSerializer(serializers.ModelSerializer):
     player_name = serializers.StringRelatedField(source="player", read_only=True)
     to_team_name = serializers.CharField(source="to_team.name", read_only=True)
     from_team_name = serializers.CharField(source="from_team.name", read_only=True)
+    message = serializers.CharField(
+        max_length=50, required=False, allow_blank=True
+    )
 
     class Meta:
         model = TransferRequest
         fields = "__all__"
         read_only_fields = ("created_by", "status", "created_at", "updated_at", "to_team",
-            "from_team",)
+            "from_team", "expires_at")
+        
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Amount should be greater than 0.")
+        return value
 
     def validate(self, attrs):
-        # optional: check transfer window, contract expiry, etc.
-        if attrs.get("is_loan") and not attrs.get("loan_gameweek"):
-            raise serializers.ValidationError("Loan gameweek required for loan offers.")
+        if attrs.get("is_loan"):
+            loan_gameweek = attrs.get("loan_gameweek")
+
+            if loan_gameweek is None:
+                raise serializers.ValidationError({
+                    "Error": ["Loan gameweek is required for loan offers."]
+                })
+
+            # check 7–38 inclusive
+            if not 7 <= loan_gameweek <= 38:
+                raise serializers.ValidationError({
+                    "loan_gameweek": ["Loan gameweek must be between 7 and 38."]
+                })
+            season = SeasonConfig.objects.filter(is_season_active=True).first()
+            if season and (loan_gameweek - season.current_gameweek) < 7:
+                raise serializers.ValidationError({
+                    "loan_gameweek": "Loan must be at least 7 gameweeks ahead."
+                })
         return attrs

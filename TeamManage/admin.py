@@ -155,6 +155,8 @@ def end_loan(modeladmin, request, queryset):
 
             player.is_academy_player = player.was_academy_player
             player.was_academy_player = False
+            player.is_locked = player.was_locked
+            player.was_locked = False
 
             # Assign back to original team
             player.team = old_team
@@ -325,3 +327,17 @@ class BidAdmin(admin.ModelAdmin):
     list_display = ("player", "team", "amount", "created_at", "expires_at")
     list_filter = ("team", "player")
     search_fields = ("player__name", "team__name")
+
+from .models import TransferRequest
+class TransferRequestAdmin(admin.ModelAdmin):
+    list_display = ('player', 'from_team', 'to_team', 'amount', 'is_loan', 'status', 'expires_at', 'created_at', 'updated_at')
+    list_filter = ('status', 'from_team', 'to_team', 'is_loan')
+    search_fields = ('player__name', 'from_team__name', 'to_team__name', 'message')
+    ordering = ('-created_at',)
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.select_related('player', 'from_team', 'to_team')
+
+admin.site.register(TransferRequest, TransferRequestAdmin)
+

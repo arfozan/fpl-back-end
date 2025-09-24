@@ -17,83 +17,9 @@ class TransferWindowAdmin(admin.ModelAdmin):
     # optional: make is_active toggleable from list view
     list_editable = ("is_active", "is_contract_open")
 
-@admin.action(description="Advance to next game week (Active Season Only)")
-def advance_gameweek(modeladmin, request, queryset):
-    active_season = SeasonConfig.get_active_season()
-
-    if not active_season:
-        messages.error(request, "❌ No active season found. Please activate a season first.")
-        return
-
-    if active_season not in queryset:
-        messages.error(request, f"❌ You can only advance the active season ({active_season.season_name}).")
-        return
-
-    if active_season.current_gameweek >= 38: #using 7 GW as test case
-        # If current gameweek is 7 or more, we assume the season has ended
-        # Season has ended → deactivate
-        active_season.is_season_active = False
-        active_season.save()
-        messages.warning(
-            request,
-            f"⚠ Season {active_season.season_name} has ended at GW38 and is now deactivated. "
-            "Please create or activate a new season."
-        )
-        return
-
-    # Increment gameweek
-    active_season.current_gameweek += 1
-    active_season.save()
-
-    # Step 1: annotate teams with number of players who have no contract_expiry
-    teams_with_counts = Team.objects.annotate(
-        no_contract_count=Count('players', filter=Q(players__contract_expiry__isnull=True))
-    )
-
-    # We’ll compute penalty manually to check transfer times
-    updates = []
-    ten_minutes_ago = timezone.now() - timedelta(minutes=10)
-
-    for team in teams_with_counts:
-        penalty_count = 0
-
-        # Step 2: get all players in this team with no contract_expiry
-        players_no_contract = team.players.filter(contract_expiry__isnull=True)
-
-        for player in players_no_contract:
-            # Step 3: find latest transfer to this team
-            last_transfer = (
-                TransferHistory.objects
-                .filter(player=player, to_team=team)
-                .order_by('-transfer_date')
-                .first()
-            )
-
-            if last_transfer:
-                # check if transfer is older than 10 minutes
-                if last_transfer.transfer_date <= ten_minutes_ago:
-                    penalty_count += 1
-            else:
-                # player might have been originally assigned with no transfer history
-                penalty_count += 1
-
-        # Step 4: apply penalty
-        penalty = Decimal('5') * penalty_count
-        new_balance = (team.current_balance or Decimal('0')) - team.weekly_wage_total - penalty
-        team.current_balance = new_balance
-        updates.append(team)
-
-    Team.objects.bulk_update(updates, ['current_balance'])
-
-    messages.success(
-        request,
-        f"✅ Advanced {active_season.season_name} to Gameweek {active_season.current_gameweek}."
-    )
-
 @admin.register(SeasonConfig)
 class SeasonConfigAdmin(admin.ModelAdmin):
     list_display = ("season_name", "current_gameweek", "is_season_active")
-    actions = [advance_gameweek]
 
     def save_model(self, request, obj, form, change):
         # Detect if activation state changed to True
@@ -126,58 +52,10 @@ class SeasonConfigAdmin(admin.ModelAdmin):
 
             self.message_user(request, f"✅ Created {len(created_rounds)} rounds with {len(matches_to_create)} matches.")
 
-
-
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
     search_fields = ("name", "manager_name")
     list_display = ("name", "manager_name", "current_balance", "weekly_wage_total", "forecast_end_balance")
-
-@admin.action(description="End Loan and Return Player to Original Club")
-def end_loan(modeladmin, request, queryset):
-    # queryset here is TransferHistory queryset
-    loaned_histories = queryset.filter(is_loan=True, is_loan_end=False).select_related('player')
-    active_season = SeasonConfig.objects.filter(is_season_active=True).first()
-
-    if not loaned_histories.exists():
-        messages.warning(request, "No active loan histories selected.")
-        return
-
-    for history in loaned_histories:
-        player = history.player
-        if not history.from_team:
-            messages.warning(request, f"{player.full_name} has no original club recorded.")
-            continue
-
-        with transaction.atomic():
-            old_team = history.from_team
-            current_team = history.to_team
-
-            player.is_academy_player = player.was_academy_player
-            player.was_academy_player = False
-            player.is_locked = player.was_locked
-            player.was_locked = False
-
-            # Assign back to original team
-            player.team = old_team
-            player.is_loan = False
-            player.loan_from_team = None
-            player.save()
-
-            # Mark the transfer history as loan-ended
-            history.is_loan_end = True
-            history.save()
-
-            # Optionally create a new transfer history for return
-            TransferHistory.objects.create(
-                season=active_season,
-                player=player,
-                from_team=current_team,
-                to_team=old_team,
-                amount=0,
-                is_loan_end=True,
-            )
-    messages.success(request, f"Loan ended for {loaned_histories.count()} players.")
 
 @admin.register(Player)
 class PlayerAdmin(admin.ModelAdmin):
@@ -296,8 +174,7 @@ class TransferHistoryAdmin(admin.ModelAdmin):
         'player', 'from_team', 'to_team', 'amount',
         'transfer_date', 'is_loan', 'loan_gameweek', 'loan_end_flag'
     )
-    readonly_fields = [f.name for f in TransferHistory._meta.fields]  # all fields readonly
-    actions = [end_loan]
+    readonly_fields = [f.name for f in TransferHistory._meta.fields]
 
     def loan_end_flag(self, obj):
         return "✅" if obj.is_loan_end else ""

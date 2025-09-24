@@ -32,48 +32,44 @@ def get_all_teams_summary(request):
 @api_view(['GET'])
 def team_players(request, team_id):
     try:
-        team = Team.objects.get(id=team_id)
+        team = Team.objects.get(pk=team_id)
     except Team.DoesNotExist:
-        return Response({'error': 'Team not found'}, status=404)
+        return Response({"error": "Team not found"}, status=404)
 
-    position_order = {'GK': 1, 'DF': 2, 'MF': 3, 'FW': 4}
+    position_order = {"GK": 1, "DF": 2, "MF": 3, "FW": 4}
+    players_qs = Player.objects.filter(team=team)
 
-    players_qs = Player.objects.filter(team=team).order_by(
-        *(["position"] if position_order is None else [])
-    )
+    total_weekly_wage = sum((p.weekly_wage for p in players_qs), Decimal("0"))
 
-    total_weekly_wage = Decimal('0')
-    players_list = []
-    academy_players_count = 0
-    main_players_count = 0
+    # ✅ Count academy vs main players (DB aggregation)
+    academy_players_count = players_qs.filter(is_academy_player=True).count()
+    main_players_count = players_qs.filter(is_academy_player=False).count()
 
-    for p in players_qs:
-        total_weekly_wage += p.weekly_wage
-        players_list.append(p)
-        if p.is_academy_player:
-            academy_players_count += 1
-        else:
-            main_players_count += 1
-
+    # ✅ Count loaned-out players separately
     loaned_out_count = Player.objects.filter(
         loan_from_team=team, is_loan=True, is_academy_player=False
     ).count()
 
+    # Include loaned-out players in total main players
     main_players_count += loaned_out_count
 
-    players_sorted = sorted(players_list, key=lambda p: position_order.get(p.position, 99))
+    # ✅ Sort players in Python by position priority
+    players_sorted = sorted(
+        players_qs,
+        key=lambda p: position_order.get(p.position, 99)
+    )
 
     serializer = PlayerSerializer(players_sorted, many=True)
 
     return Response({
-        'team_name': team.name,
-        'logo': request.build_absolute_uri(team.logo.url) if team.logo else None,
-        'total_weekly_wage': total_weekly_wage,
-        'forecast_end_balance': team.forecast_end_balance,
-        'current_balance': team.current_balance,
-        'total_players': main_players_count,
-        'academy_players': academy_players_count,
-        'players': serializer.data,
+        "team_name": team.name,
+        "logo": request.build_absolute_uri(team.logo.url) if team.logo else None,
+        "total_weekly_wage": total_weekly_wage,
+        "forecast_end_balance": team.forecast_end_balance,
+        "current_balance": team.current_balance,
+        "total_players": main_players_count,
+        "academy_players": academy_players_count,
+        "players": serializer.data,
     })
 
 @api_view(['GET'])
@@ -239,13 +235,6 @@ def toggle_academy(request, player_id):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def extend_contract(request, player_id):
-    """
-    Extend contract for a player to a new TransferWindow.
-    Rules:
-    - There must be an is_contract_open=True TransferWindow
-    - The selected transfer_window_id must be 2 or greater than current contract_expiry.id
-    Body: {"transfer_window_id": 5}
-    """
     # 1️⃣ Check if any active transfer window exists
     current_window = TransferWindow.objects.filter(is_contract_open=True).first()
     if not current_window:
@@ -590,10 +579,11 @@ class TransferRequestViewSet(viewsets.ModelViewSet):
         if not user_team:
             raise ValidationError("Logged-in user is not assigned to a team.")
         player_id = self.request.data.get("player")
+        is_loan = self.request.data.get("is_loan") 
+        is_loan = str(is_loan).lower() in ["true", "1", "yes"]
         player = Player.objects.get(pk=player_id)
-        if player.is_transfer_lock:  # or player.is_locked if that's your actual field
+        if player.is_transfer_lock and not is_loan: 
             raise ValidationError({"error": ["Player already transferred once in this Transfer Window."]})
-
         
         current_season = SeasonConfig.objects.filter(is_season_active=True).first()
         if not current_season:
@@ -750,7 +740,6 @@ def accept_transfer_request(tr: TransferRequest, accepted_by):
             player.loan_from_team = from_team
             player.team = to_team
             player.is_academy_player = True
-            player.is_transfer_lock =True
         else:
             player.team = to_team
             player.is_loan = False

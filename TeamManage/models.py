@@ -144,7 +144,7 @@ class Player(models.Model):
     photo = models.ImageField(upload_to='player_photos/')
     club_name = models.CharField(max_length=100, null=True, blank=True)
     position = models.CharField(max_length=2, choices=POSITIONS)
-    bonus_earning = models.DecimalField(max_digits=10, decimal_places=5, default=0, help_text="Total bonus earned by the player")
+    bonus_earning = models.DecimalField(max_digits=10, decimal_places=1, default=0, help_text="Total bonus earned by the player")
     is_locked = models.BooleanField(default=False)
     was_locked = models.BooleanField(default=False)
     is_transfer_lock = models.BooleanField(default=False)
@@ -299,7 +299,7 @@ class TransferHistory(models.Model):
         'Team', on_delete=models.SET_NULL, null=True,
         related_name="transfers_in"
     )
-    amount = models.DecimalField(max_digits=10, decimal_places=5, default=0)
+    amount = models.DecimalField(max_digits=3, decimal_places=1, default=0)
     transfer_date = models.DateTimeField(default=timezone.now)
     is_loan = models.BooleanField(default=False)
     loan_gameweek = models.IntegerField(null=True, blank=True)

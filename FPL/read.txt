@@ -19,5 +19,9 @@ FPL/TeamManage/management/update_players_club
 Unlock players (move academy to Main team and vice versa)
     python manage.py unlock_players
 
+Advance to next Game Week (Run before game week starts)
+     python manage.py advance_gameweek
 
+Loan End and return to Parent update_player_clubs
+    python manage.py game_week_end
 

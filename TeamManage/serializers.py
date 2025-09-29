@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid, TransferWindow, NewsPost, TeamSeasonStats, TransferRequest
+from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid,TransferWindow, NewsPost, TeamSeasonStats, TransferRequest, PostImage
 from decimal import Decimal
 from rest_framework.exceptions import ValidationError
 
@@ -166,13 +166,42 @@ class BidSerializer(serializers.ModelSerializer):
         return None
     def get_amount(self, obj):
         return Decimal(obj.amount or 0)
+    
+class PostImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PostImage
+        fields = ['id', 'image', 'caption']
 
 class NewsPostSerializer(serializers.ModelSerializer):
-    author = serializers.CharField(source='author.username', read_only=True)
+    author = serializers.SerializerMethodField()
+    images = PostImageSerializer(many=True, read_only=True)
+    team_name = serializers.SerializerMethodField()
+    manager_name = serializers.SerializerMethodField()
 
     class Meta:
         model = NewsPost
-        fields = ['id', 'headline', 'content', 'image', 'date_posted', 'author']
+        fields = [
+            'id', 'headline', 'content', 'images',
+            'title_image', 'date_posted', 'author', 'team_name', 'manager_name'
+        ]
+
+    def _get_team(self, obj):
+        # cache per object to avoid 3 queries
+        if not hasattr(obj, '_cached_team'):
+            obj._cached_team = Team.objects.filter(user_name=obj.author).first()
+        return obj._cached_team
+
+    def get_author(self, obj):
+        team = self._get_team(obj)
+        return team.name if team else obj.author.username  # team name for manual posts, FHPL for system posts
+
+    def get_team_name(self, obj):
+        team = self._get_team(obj)
+        return team.name if team else None  # None or obj.author.username if you want FHPL here
+
+    def get_manager_name(self, obj):
+        team = self._get_team(obj)
+        return team.manager_name if team else None
 
 class TransferRequestSerializer(serializers.ModelSerializer):
     player_name = serializers.StringRelatedField(source="player", read_only=True)

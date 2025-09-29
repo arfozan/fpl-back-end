@@ -43,12 +43,24 @@ class TransferWindow(models.Model):
 
                 # Update players whose contract expires in this window
                 from TeamManage.models import Player  # ✅ Replace with actual app name
+                from TeamManage.signals import player_released
+                expired_players = list(Player.objects.filter(contract_expiry=self))
+
                 Player.objects.filter(contract_expiry=self).update(
                     team=None,
                     is_locked=False,
                     was_locked=False,
                     is_transfer_lock=False,
                     contract_renew_bonus=0
+                )
+                for p in expired_players:
+                    old_team = p.team  # you still have team before update in `p`
+                    player_released.send(
+                        sender=self.__class__,
+                        player=p,
+                        team=old_team,
+                        contract_expiry=self,  # 👈 pass which window expired
+                        user=old_team.user_name  # since automatic
                 )
                 return  # ✅ Important to avoid saving twice
         super().save(*args, **kwargs)
@@ -314,11 +326,11 @@ class TransferHistory(models.Model):
             raise ValidationError("Loan gameweek must be specified for loan deals.")
 
     def save(self, *args, **kwargs):
-        # For a new record, default from_team to the player's current team
-        if self.pk is None and not self.from_team:
+    # Only set from_team if explicitly missing AND player has a team that's not equal to to_team
+        if self.pk is None and self.from_team is None and self.player and self.player.team != self.to_team:
             self.from_team = self.player.team
 
-        # Only validate + save — no player moves, no balance updates
+        # Run validations (lightweight and side-effect free)
         self.full_clean()
         super().save(*args, **kwargs)
 
@@ -461,13 +473,17 @@ class Bid(models.Model):
 class NewsPost(models.Model):
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='news_posts')
     headline = models.CharField(max_length=255)
+    title_image = models.ImageField(upload_to='news_images/', blank=True, null=True)  # 👈 New field
     content = models.TextField()
-    image = models.ImageField(upload_to='news_images/', blank=True, null=True)
     date_posted = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.headline} by {self.author.username}"
-
+    
+class PostImage(models.Model):  # for multiple images
+    post = models.ForeignKey(NewsPost, related_name='images', on_delete=models.CASCADE)
+    image = models.ImageField(upload_to='posts/')
+    caption = models.CharField(max_length=255, blank=True)
 
 # Personal Deal Model
 class TransferRequest(models.Model):

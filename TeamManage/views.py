@@ -21,7 +21,12 @@ from django.utils import timezone
 from decimal import Decimal
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
+from .signals import contract_extended, player_transferred
 
+from rest_framework.pagination import PageNumberPagination
+
+class NewsPagination(PageNumberPagination):
+    page_size = 10
 
 @api_view(['GET'])
 def get_all_teams_summary(request):
@@ -169,29 +174,68 @@ def get_serializer_context(self):
     context['team_id'] = self.kwargs.get('team_id')
     return context
 
-@api_view(["GET"])
+# Define this globally or inside the view
+POSITION_ORDER = {"GK": 1, "DF": 2, "MF": 3, "FW": 4}
+
+@api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def my_team_players(request):
-    """
-    Return the team (if any) for the logged-in user and the players
-    whose Player.team points to that team (team__user_name == request.user).
-    """
-    # optional: get the Team object (could be None)
-    team = Team.objects.filter(user_name=request.user).first()
+    user = request.user
+    team = Team.objects.filter(user_name=user).first()
 
-    # direct filtering by the relation: team__user_name=request.user
+    if not team:
+        return Response({"team": None, "players": [], "expiring_contracts_count": 0}, status=status.HTTP_200_OK)
+
+    # Players currently in team
     players_qs = (
         Player.objects
-        .filter(team__user_name=request.user)
-        .select_related("team", "loan_from_team", "contract_expiry")  # optimization
-        .order_by("position", "last_name")
+        .filter(team=team)
+        .select_related("team", "loan_from_team", "contract_expiry")
     )
 
-    players_data = PlayerSerializer(players_qs, many=True, context={"request": request}).data
-    team_data = TeamSummarySerializer(team, context={"request": request}).data if team else None
+    # Total weekly wage
+    total_weekly_wage = sum((p.weekly_wage for p in players_qs), Decimal("0"))
+    total_yearly_wage = Decimal(total_weekly_wage * 38)
+
+    # Count academy and main players
+    academy_players_count = players_qs.filter(is_academy_player=True).count()
+    main_players_count = players_qs.filter(is_academy_player=False).count()
+
+    # Count loaned-out players (they are not in players_qs)
+    loaned_out_count = Player.objects.filter(
+        loan_from_team=team,
+        is_loan=True,
+        is_academy_player=False
+    ).count()
+
+    # Include them in the main players count
+    main_players_count += loaned_out_count
+
+    # Contract expiring count
     expiring_count = players_qs.filter(contract_expiry__isnull=True).count()
 
-    return Response({"team": team_data, "players": players_data, "expiring_contracts_count": expiring_count}, status=status.HTTP_200_OK)
+    # Sort players by position order
+    players_sorted = sorted(
+        players_qs,
+        key=lambda p: POSITION_ORDER.get(p.position, 99)
+    )
+
+    # Serialize players
+    players_data = PlayerSerializer(players_sorted, many=True, context={"request": request}).data
+
+    # Serialize team summary
+    team_data = TeamSummarySerializer(team, context={"request": request}).data
+
+    return Response({
+        "team": team_data,
+        "players": players_data,
+        "expiring_contracts_count": expiring_count,
+        "total_weekly_wage": str(total_weekly_wage),
+        "total_yearly_wage": str(total_yearly_wage),
+        "academy_players_count": academy_players_count,
+        "main_players_count": main_players_count,
+    }, status=status.HTTP_200_OK)
+
 
 @api_view(["GET"])
 def list_transfer_windows(request):
@@ -279,6 +323,13 @@ def extend_contract(request, player_id):
         player.contract_renew_bonus = (player.contract_renew_bonus or Decimal("0")) + Decimal("0.5")
     
     player.save(update_fields=["contract_expiry", "contract_renew_bonus"])
+
+    contract_extended.send(
+        sender=Player,
+        player=player,
+        window=window,
+        user=request.user
+    )
 
     return Response({
         "id": player.id,
@@ -522,6 +573,7 @@ class NewsPostListCreateView(generics.ListCreateAPIView):
     queryset = NewsPost.objects.all().order_by('-date_posted')
     serializer_class = NewsPostSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    pagination_class = NewsPagination
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
@@ -530,6 +582,7 @@ class NewsPostDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = NewsPost.objects.all()
     serializer_class = NewsPostSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    pagination_class = NewsPagination
 
 # Personal Deal View
 from rest_framework.permissions import BasePermission
@@ -616,7 +669,7 @@ class TransferRequestViewSet(viewsets.ModelViewSet):
         active_bids_total = Decimal("0")
         for bid in active_bids:
             # Calculate remaining wage for the season
-            remaining_wage = bid.player.weekly_wage() * Decimal(38 - current_gameweek)
+            remaining_wage = bid.player.weekly_wage * Decimal(38 - current_gameweek)
             # Add both the current bid amount AND the future wage
             active_bids_total += bid.amount + remaining_wage
 
@@ -769,6 +822,16 @@ def accept_transfer_request(tr: TransferRequest, accepted_by):
         tr.save(update_fields=["status", "updated_at"])
         tr.delete()
 
+        player_transferred.send(
+            sender=accept_transfer_request,
+            player=player,
+            from_team=from_team,
+            to_team=to_team,
+            amount=amount,
+            is_loan=tr.is_loan,
+            loan_gameweek=tr.loan_gameweek,
+            user=accepted_by,
+)
         return th
     
 @api_view(["GET"])

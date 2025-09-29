@@ -1,6 +1,7 @@
 from django.utils import timezone
 from .models import Bid, TransferHistory, SeasonConfig
 from decimal import Decimal
+from TeamManage.signals import player_signed
 
 def finalize_expired_bids():
     now = timezone.now()
@@ -41,5 +42,11 @@ def finalize_expired_bids():
         player.save(update_fields=["team", "is_academy_player", "contract_expiry", "contract_renew_bonus"])
         print(f"[PLAYER UPDATED] {player} assigned to {team}")
 
-        # Remove bid (auction closed)
+        player_signed.send(
+            sender=finalize_expired_bids,
+            player=player,
+            team=team,
+            amount=bid.amount,
+            user=None  # None → FHPL author in create_news_post
+        )
         bid.delete()

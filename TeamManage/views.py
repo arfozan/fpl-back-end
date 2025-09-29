@@ -644,8 +644,6 @@ class TransferRequestViewSet(viewsets.ModelViewSet):
         current_gameweek = current_season.current_gameweek
 
         # ---- New offer details ----
-        player_id = self.request.data.get("player")
-        player = Player.objects.select_related("team").get(pk=player_id)
         new_offer_amount = Decimal(self.request.data.get("amount", "0"))
         new_player_wage = player.weekly_wage * Decimal(38 - current_gameweek)
 
@@ -654,7 +652,7 @@ class TransferRequestViewSet(viewsets.ModelViewSet):
 
         # 1️⃣ Pending transfer requests already sent by this team
         pending_transfers = TransferRequest.objects.filter(
-            from_team=user_team, status=TransferRequest.STATUS_PENDING
+            to_team=user_team, status=TransferRequest.STATUS_PENDING
         ).select_related("player")
         for tr in pending_transfers:
             remaining_wage = tr.player.weekly_wage * Decimal(38 - current_gameweek)

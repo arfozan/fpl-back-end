@@ -5,6 +5,7 @@ from .signals import (
     player_signed,
     player_released,
     player_transferred,
+    player_loan_ended,
 )
 from .news.helpers import create_news_post
 from TeamManage.models import NewsPost, Team
@@ -67,26 +68,26 @@ def handle_player_signed(sender, player, team, amount, user = None, **kwargs):
         user = User.objects.get(username="FHPL")
     headline = f"{player.first_name} {player.last_name} signs for {team.name}"
     content = (f"""
-        🚨 Major Transfer Alert: {player.first_name} {player.last_name} has officially signed with {team.name} 
-        for a reported fee of {amount}M following a highly competitive bidding war! 🔥
+        <p>🚨 Major Transfer Alert: {player.first_name} {player.last_name} has officially signed with {team.name} 
+        for a reported fee of {amount}M following a highly competitive bidding war! 🔥</p>
         
-        After an intense back-and-forth between multiple top-tier teams, {player.first_name} was courted by a 
+        <p>After an intense back-and-forth between multiple top-tier teams, {player.first_name} was courted by a 
         number of suitors, with {team.name} coming out on top as the highest bidder. The bidding process saw 
-        several top clubs vying for the star player's signature, but ultimately it was {team.name} that won the race.
+        several top clubs vying for the star player's signature, but ultimately it was {team.name} that won the race.</p>
         
-        Manager {team.manager_name} expressed their excitement at securing the services of such a high-profile player, 
+        <p>Manager {team.manager_name} expressed their excitement at securing the services of such a high-profile player, 
         stating, 'We believe {player.first_name} will be a game-changer for us this season. His quality, experience, 
-        and versatility are exactly what we need to strengthen our squad. We can’t wait to see him in action.'
+        and versatility are exactly what we need to strengthen our squad. We can’t wait to see him in action.'</p>
         
-        The player is expected to make an immediate impact, and {team.name} fans are eagerly awaiting his debut.
+        <p>The player is expected to make an immediate impact, and {team.name} fans are eagerly awaiting his debut.
         With {player.first_name}'s track record of goals/assists and exceptional performances, this signing could be
-        a major boost for the team as they aim for the top of the league.
+        a major boost for the team as they aim for the top of the league.</p>
         
-        On the flip side, {team.name}’s success in the bidding process leaves other interested clubs
-        disappointed. These teams will now be looking to adjust their strategies as they look for other transfer targets.
+        <p>On the flip side, {team.name}’s success in the bidding process leaves other interested clubs
+        disappointed. These teams will now be looking to adjust their strategies as they look for other transfer targets.</p>
         
-        🎯 Fantasy managers, don’t miss out on {player.first_name}. With this high-profile move, he’s bound to be a
-        key figure for {team.name}, and could be a great addition to your fantasy team this season!
+        <p>🎯 Fantasy managers, don’t miss out on {player.first_name}. With this high-profile move, he’s bound to be a
+        key figure for {team.name}, and could be a great addition to your fantasy team this season!</p>
         """
     )
     title_image = team.logo if team and team.logo else None
@@ -98,19 +99,19 @@ def handle_player_released(sender, player, team, user, contract_expiry, **kwargs
         user = User.objects.get(username="FHPL")
     headline = f"{player.first_name} {player.last_name} released from {team.name}"
     content = (f"""
-        <{player.first_name} {player.last_name} Becomes a Free Agent After Contract Expires with {team.name}
+        <p>{player.first_name} {player.last_name} Becomes a Free Agent After Contract Expires with {team.name}</p>
 
-        In a significant move within the world of football, <{player.first_name} {player.last_name}, who had been a key figure for {team.name} until the conclusion of their contract, has officially become a free agent. The player’s agreement with the club expired at the close of the {contract_expiry.season} {contract_expiry.year} transfer window.
+        <p>In a significant move within the world of football, <{player.first_name} {player.last_name}, who had been a key figure for {team.name} until the conclusion of their contract, has officially become a free agent. The player’s agreement with the club expired at the close of the {contract_expiry.season} {contract_expiry.year} transfer window.</p>
 
-        {team.name} released a statement confirming that {player.last_name} is now eligible to explore opportunities with other teams, either through direct negotiations or by entering the upcoming free agent bidding process. This marks a new chapter in the player’s career, with speculation already circulating about potential destinations for the talented player like him.
+        <p>{team.name} released a statement confirming that {player.last_name} is now eligible to explore opportunities with other teams, either through direct negotiations or by entering the upcoming free agent bidding process. This marks a new chapter in the player’s career, with speculation already circulating about potential destinations for the talented player like him.</p>
 
-        During their time at {team.name}, {player.last_name} proved to be an invaluable asset, making numerous contributions both on and off the pitch. Over the course of their tenure, the player notched up impressive statistics, including, cementing their place as one of the club's standout performers.
+        </p>During their time at {team.name}, {player.last_name} proved to be an invaluable asset, making numerous contributions both on and off the pitch. Over the course of their tenure, the player notched up impressive statistics, including, cementing their place as one of the club's standout performers.</p>
 
-        In response to the player’s departure, {team.name} expressed gratitude for {player.last_name}’s efforts and dedication, with the club’s management commenting: “We would like to extend our sincere thanks to {player.last_name} for their commitment and hard work during their time with us. We wish them all the best in their future endeavors and look forward to following their career with interest.”
+        <p>In response to the player’s departure, {team.name} expressed gratitude for {player.last_name}’s efforts and dedication, with the club’s management commenting: “We would like to extend our sincere thanks to {player.last_name} for their commitment and hard work during their time with us. We wish them all the best in their future endeavors and look forward to following their career with interest.”</p>
 
-        In the wake of {player.last_name}’s departure, {team.name}’ boss {team.manager_name}, shared a thoughtful message reflecting on the player’s time at the club. The manager emphasized that while the departure is a loss for the team, the club remains focused on building for the future and will continue to strengthen the squad in anticipation of the upcoming season.
+        <p>In the wake of {player.last_name}’s departure, {team.name}’ boss {team.manager_name}, shared a thoughtful message reflecting on the player’s time at the club. The manager emphasized that while the departure is a loss for the team, the club remains focused on building for the future and will continue to strengthen the squad in anticipation of the upcoming season.</p>
 
-        As a free agent, {player.last_name} is now open to discussing terms with potential suitors, and it remains to be seen which team will be the next to secure their services. Fans and pundits alike will be watching closely as the transfer market heats up.
+        <p>As a free agent, {player.last_name} is now open to discussing terms with potential suitors, and it remains to be seen which team will be the next to secure their services. Fans and pundits alike will be watching closely as the transfer market heats up.</p>
         """
     )
     create_news_post(headline, title_image=team.logo, content = content, author=None)
@@ -123,21 +124,21 @@ def handle_player_transferred(sender, player, from_team, to_team, amount, user =
     if is_loan:
         headline = f"{player.first_name} {player.last_name} joins {to_team.name} on loan"
         content = (f"""
-            🔁 Loan Deal Confirmed: {player.first_name} {player.last_name} has completed a temporary move from 
-            {from_team.name} to {to_team.name} on loan until Gameweek {loan_gameweek}. 🤝
+            <p>🔁 Loan Deal Confirmed: {player.first_name} {player.last_name} has completed a temporary move from 
+            {from_team.name} to {to_team.name} on loan until Gameweek {loan_gameweek}. 🤝</p>
 
-            The deal, valued at {amount}M, allows {to_team.name} to strengthen their squad with a quality player 
-            without a permanent commitment, while {from_team.name} looks to give {player.first_name} valuable playing time.
+            <p>The deal, valued at {amount}M, allows {to_team.name} to strengthen their squad with a quality player 
+            without a permanent commitment, while {from_team.name} looks to give {player.first_name} valuable playing time.</p>
 
-            {to_team.manager_name}, the manager of {to_team.name}, commented on the move, saying, "
+            <p>{to_team.manager_name}, the manager of {to_team.name}, commented on the move, saying,
             '{player.first_name} brings a lot of energy and creativity to our lineup. We’re confident he’ll contribute significantly 
-            during this loan spell.'\n\n"
+            during this loan spell.</p>
 
-            {player.first_name} will return to {from_team.name} at the end of Gameweek {loan_gameweek}, and the parent club
-            will be monitoring his progress closely during the loan period.\n\n"
+            <p>{player.first_name} will return to {from_team.name} at the end of Gameweek {loan_gameweek}, and the parent club
+            will be monitoring his progress closely during the loan period.</p>
 
-            🎯 For fantasy managers, this loan spell might offer short-term value — especially if {player.last_name} hits form in the coming weeks.
-            Keep an eye on his performances while he's wearing the {to_team.name} colors!
+            <p>🎯 For fantasy managers, this loan spell might offer short-term value — especially if {player.last_name} hits form in the coming weeks.
+            Keep an eye on his performances while he's wearing the {to_team.name} colors!</p>
             """
         )
     else:
@@ -165,3 +166,34 @@ def handle_player_transferred(sender, player, from_team, to_team, amount, user =
 
     title_image = to_team.logo if team and team.logo else None
     create_news_post(headline, content, author=None, title_image=title_image)
+
+@receiver(player_loan_ended)
+def handle_player_loan_ended(sender, player, from_team, to_team, amount, user = None, is_loan = False, loan_gameweek=None, **kwargs):
+    if user is None:
+        user = User.objects.get(username="FHPL")
+    team = Team.objects.filter(user_name=user).first()
+    
+    headline = f"{player.first_name} {player.last_name} back to {to_team.name} after loan"
+    content = (f"""
+        <p>🔁 Loan Deal Confirmed: {player.first_name} {player.last_name} has completed a temporary move from 
+        {from_team.name} to {to_team.name} on loan until Gameweek {loan_gameweek}. 🤝</p>
+
+        <p>The deal, valued at {amount}M, allows {to_team.name} to strengthen their squad with a quality player 
+        without a permanent commitment, while {from_team.name} looks to give {player.first_name} valuable playing time.</p>
+
+        <p>{to_team.manager_name}, the manager of {to_team.name}, commented on the move, saying,
+        '{player.first_name} brings a lot of energy and creativity to our lineup. We’re confident he’ll contribute significantly 
+        during this loan spell.</p>
+
+        <p>{player.first_name} will return to {from_team.name} at the end of Gameweek {loan_gameweek}, and the parent club
+        will be monitoring his progress closely during the loan period.</p>
+
+        <p>🎯 For fantasy managers, this loan spell might offer short-term value — especially if {player.last_name} hits form in the coming weeks.
+        Keep an eye on his performances while he's wearing the {to_team.name} colors!</p>
+        """
+        )
+    title_image = to_team.logo if team and team.logo else None
+    create_news_post(headline, content, author=None, title_image=to_team.logo)
+
+    
+

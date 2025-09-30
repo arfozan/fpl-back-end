@@ -2,6 +2,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 from decimal import Decimal
+from TeamManage.signals import player_loan_ended
 
 from TeamManage.models import SeasonConfig, TransferHistory  # ✅ adjust app name
 
@@ -65,6 +66,16 @@ class Command(BaseCommand):
                     is_loan_end=True,
                 )
 
+                player_loan_ended.send(
+                    sender=self.__class__,
+                    player=player,
+                    from_team=current_team,  # they were loaned to this team
+                    to_team=old_team,        # returning to this team
+                    amount=Decimal("0"),
+                    user=None,               # will default to FHPL in receiver
+                    is_loan=False,
+                    loan_gameweek=current_gw,
+                )
                 ended_count += 1
 
         self.stdout.write(

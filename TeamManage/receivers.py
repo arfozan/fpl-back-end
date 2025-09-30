@@ -6,6 +6,7 @@ from .signals import (
     player_released,
     player_transferred,
     player_loan_ended,
+    weekly_bonus_applied,
 )
 from .news.helpers import create_news_post
 from TeamManage.models import NewsPost, Team
@@ -175,25 +176,103 @@ def handle_player_loan_ended(sender, player, from_team, to_team, amount, user = 
     
     headline = f"{player.first_name} {player.last_name} back to {to_team.name} after loan"
     content = (f"""
-        <p>🔁 Loan Deal Confirmed: {player.first_name} {player.last_name} has completed a temporary move from 
-        {from_team.name} to {to_team.name} on loan until Gameweek {loan_gameweek}. 🤝</p>
+        <p>🔁 Loan Spell Concluded: {player.first_name} {player.last_name} has completed his temporary loan move from 
+        {from_team.name} to {to_team.name}, and will now return to his parent club at the conclusion of Gameweek {loan_gameweek}. 
+        After a productive spell, {player.first_name} is set to rejoin {from_team.name} for the remainder of the season. 👏</p>
 
-        <p>The deal, valued at {amount}M, allows {to_team.name} to strengthen their squad with a quality player 
-        without a permanent commitment, while {from_team.name} looks to give {player.first_name} valuable playing time.</p>
+        <p>During his time at {to_team.name}, {player.first_name} featured in {loan_gameweek} Gameweeks, contributing {player.goals} 
+        goals and {player.assists} assists, helping the team strengthen their position in the league. The loan deal, which was valued at 
+        {amount}M, provided {to_team.name} with much-needed depth, and {player.first_name} showcased his talent on the pitch.</p>
 
-        <p>{to_team.manager_name}, the manager of {to_team.name}, commented on the move, saying,
-        '{player.first_name} brings a lot of energy and creativity to our lineup. We’re confident he’ll contribute significantly 
-        during this loan spell.</p>
+        <p>{to_team.manager_name}, the manager of {to_team.name}, expressed their satisfaction with the loan, stating, 
+        '{player.first_name} has been an excellent addition to our squad, bringing energy and creativity in key moments. While we 
+        will miss him, we are grateful for the contribution he made during his time here.'</p>
 
-        <p>{player.first_name} will return to {from_team.name} at the end of Gameweek {loan_gameweek}, and the parent club
-        will be monitoring his progress closely during the loan period.</p>
+        <p>With {player.first_name} returning to {from_team.name}, {from_team.manager_name}, manager of {from_team.name}, 
+        has welcomed back the player, saying, '{player.first_name} has shown significant growth in his time away, and we’re 
+        looking forward to having him back to add further quality to our squad.' The parent club is excited to have {player.first_name} 
+        back in their ranks for the next phase of the season.</p>
 
-        <p>🎯 For fantasy managers, this loan spell might offer short-term value — especially if {player.last_name} hits form in the coming weeks.
-        Keep an eye on his performances while he's wearing the {to_team.name} colors!</p>
-        """
-        )
+        <p>📈 For fantasy managers, {player.first_name}’s time at {to_team.name} may have brought some valuable points, 
+        but now that he is back with {from_team.name}, keep an eye on his performances as he may get back into the starting lineup 
+        and be a key asset in the coming weeks!</p>
+
+        <p>⚽ {player.first_name} will wear {from_team.name}’s colors once more, aiming to build on his experiences from 
+        the loan spell at {to_team.name}. Stay tuned for updates on his progress as he returns to action.</p>
+""")
+
     title_image = to_team.logo if team and team.logo else None
     create_news_post(headline, content, author=None, title_image=to_team.logo)
 
+@receiver(weekly_bonus_applied)
+def handle_weekly_bonus(sender, instance, **kwargs):
+    """
+    Create a NewsPost entry summarizing the weekly bonus.
+    """
+    season = instance.season
+    gw = instance.gameweek
+
+    # Build a nice headline:
+    headline = f"Weekly Bonus Results – Gameweek {gw} {season}"
+
+
+    # Build HTML content using your Player and Team fields
+    content = "<strong>Weekly Bonus Winners</strong>"
+
+    # Highest point teams
+    if instance.highest_point_teams.exists():
+        content += "<p><strong>🏆 Highest Point Teams (+1.0M)</strong></p><ul>"
+        for team in instance.highest_point_teams.all():
+            content += f"<li>{team.name} (Manager: {team.manager_name})</li>"
+        content += "</ul>"
+
+    # Highest point players
+    if instance.highest_point_players.exists():
+        content += "<h4>⭐ Highest Point Players (+1.0M)</h4><ul>"
+        for player in instance.highest_point_players.all():
+            team_name = player.team.name if player.team else "Free Agent"
+            content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
+        content += "</ul>"
+
+    if instance.highest_gk_players.exists():
+        content += "<h4>🧤 Top Goalkeeper (+0.5M)</h4><ul>"
+        for player in instance.highest_gk_players.all():
+            team_name = player.team.name if player.team else "Free Agent"
+            content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
+        content += "</ul>"
+
+    if instance.highest_df_players.exists():
+        content += "<h4>🛡️ Top Defender/s (+0.5M)</h4><ul>"
+        for player in instance.highest_df_players.all():
+            team_name = player.team.name if player.team else "Free Agent"
+            content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
+        content += "</ul>"
+
+    if instance.highest_mf_players.exists():
+        content += "<h4>⚙️ Top Midfielde/s (+0.5M)</h4><ul>"
+        for player in instance.highest_mf_players.all():
+            team_name = player.team.name if player.team else "Free Agent"
+            content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
+        content += "</ul>"
+    
+    if instance.highest_fw_players.exists():
+        content += "<h4>⚽ Top Forward/s (+0.5M)</h4><ul>"
+        for player in instance.highest_fw_players.all():
+            team_name = player.team.name if player.team else "Free Agent"
+            content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
+        content += "</ul>"
+
+    if instance.special_bonus_players.exists():
+        content += "<p><strong>🎁 Team of the Week Player/s (+0.3M)</strong></p><ul>"
+        for player in instance.special_bonus_players.all():
+            team_name = player.team.name if player.team else "Free Agent"
+            content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
+        content += "</ul>"
+
+    # pick a default image (optional)
+    title_image = "bonus_title_image.png"  
+
+    # This will default to FHPL author automatically
+    create_news_post(headline, content, title_image)
     
 

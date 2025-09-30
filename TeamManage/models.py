@@ -5,6 +5,7 @@ from rest_framework.exceptions import ValidationError
 from django.utils import timezone
 from decimal import Decimal
 from django.conf import settings
+from .signals import weekly_bonus_applied
 
 class TransferWindow(models.Model):
     SEASON_CHOICES = [
@@ -442,6 +443,11 @@ class WeeklyBonus(models.Model):
                 player.team.bonus_income = (player.team.bonus_income or Decimal("0")) + third
                 player.team.save(update_fields=["current_balance", "bonus_income"])
 
+        weekly_bonus_applied.send(
+            sender=self.__class__,
+            instance=self,
+        )
+
     def save(self, *args, **kwargs):
         """Save season/gameweek."""
         self.full_clean()
@@ -456,6 +462,7 @@ class Bid(models.Model):
     amount = models.DecimalField(max_digits=5, decimal_places=1)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
+    processed = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["-created_at"]

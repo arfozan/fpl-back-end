@@ -6,7 +6,7 @@ from .serializers import (
     TeamSummarySerializer, PlayerSerializer,
     SeasonConfigSerializer, TransferHistorySerializer,
     MatchSerializer, BidSerializer, TransferWindow, NewsPostSerializer, TeamSeasonStatsSerializer,
-    TransferWindowSerializer, TransferRequestSerializer
+    TransferWindowSerializer, TransferRequestSerializer, NewsPostCreateSerializer
 )
 from django.db import models
 from django.db.models import Q, Max, Sum
@@ -22,7 +22,8 @@ from decimal import Decimal
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
 from .signals import contract_extended, player_transferred
-
+from django.db import transaction
+from django.db.models import Count
 from rest_framework.pagination import PageNumberPagination
 
 class NewsPagination(PageNumberPagination):
@@ -246,29 +247,44 @@ def list_transfer_windows(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def toggle_academy(request, player_id):
-    # Check if any TransferWindow is active
+    # ✅ Check transfer window
     if not TransferWindow.objects.filter(is_contract_open=True).exists():
         return Response(
             {"error": "No active transfer window. Cannot toggle academy."},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    try:
-        player = Player.objects.get(pk=player_id)
-    except Player.DoesNotExist:
-        return Response({"error": "Player not found"}, status=status.HTTP_404_NOT_FOUND)
-
-    # Prevent toggle if locked
-    if player.is_locked:
-        return Response(
-            {"error": "Player is locked and cannot be toggled"},
-            status=status.HTTP_400_BAD_REQUEST
+    with transaction.atomic():
+        player = (
+            Player.objects.select_for_update()
+            .select_related("team")
+            .filter(pk=player_id)
+            .first()
         )
+        if not player:
+            return Response({"error": "Player not found"}, status=status.HTTP_404_NOT_FOUND)
 
-    # Toggle academy and lock player
-    player.is_academy_player = not player.is_academy_player
-    player.is_locked = True
-    player.save()
+        if player.is_locked:
+            return Response(
+                {"error": "Player is locked and cannot be toggled"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if player.is_academy_player:
+            main_team_count = Player.objects.filter(
+                team=player.team,
+                is_academy_player=False
+            ).aggregate(c=Count('id'))['c']
+
+            if main_team_count >= 30:
+                return Response(
+                    {"error": "Main team already has 30 players."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        player.is_academy_player = not player.is_academy_player
+        player.is_locked = True
+        player.save()
 
     return Response({
         "id": player.id,
@@ -574,6 +590,7 @@ class NewsPostListCreateView(generics.ListCreateAPIView):
     serializer_class = NewsPostSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     pagination_class = NewsPagination
+    parser_classes = [MultiPartParser, FormParser]
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
@@ -586,7 +603,6 @@ class NewsPostDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 # Personal Deal View
 from rest_framework.permissions import BasePermission
-
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def my_team(request):
@@ -852,3 +868,86 @@ def available_players(request):
         for p in qs
     ]
     return Response(data)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def release_player(request, player_id):
+    try:
+        player = Player.objects.get(pk=player_id)
+    except Player.DoesNotExist:
+        return Response({"error": "Player not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    # ✅ Check if there is an open transfer window
+    active_window = TransferWindow.objects.filter(is_contract_open=True).first()
+    if not active_window:
+        return Response(
+            {"error": "No contract-open transfer window available. Cannot release player."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    if player.team is None:
+        return Response(
+            {"error": "Player is free agent"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # ✅ Check player rules
+    if player.base_price != Decimal("0.0"):
+        return Response(
+            {"error": "Only Inactive players can be released."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if getattr(player, "is_loan", False):
+        return Response(
+            {"error": "Loaned players cannot be released."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # ✅ Get current active season
+    active_season = SeasonConfig.get_active_season()
+    if not active_season:
+        return Response(
+            {"error": "No active season configured. Cannot release player."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # ✅ Save old team before nulling
+    old_team = player.team
+
+    # ✅ Update player fields on release
+    player.is_locked = False
+    player.was_locked = False
+    player.is_transfer_lock = False
+    player.team = None
+    player.contract_renew_bonus = Decimal("0.0")
+    player.is_academy_player = False
+    player.was_academy_player = False
+    player.contract_expiry = active_window
+    player.save()
+
+    # ✅ Create TransferHistory entry
+    TransferHistory.objects.create(
+        season=active_season,
+        player=player,
+        from_team=old_team,
+        to_team=None,  # released → free agent
+        amount=Decimal("0.0"),
+        transfer_date=timezone.now(),
+        is_loan=False,
+        loan_gameweek=None,
+        is_loan_end=False,
+        description="Player Released"
+    )
+
+    return Response({
+        "id": player.id,
+        "released": True,
+        "team": None,
+        "contract_expiry": active_window.id,
+        "season": active_window.season,
+        "year": active_window.year,
+        "transfer_history_created": True
+    })
+
+

@@ -204,19 +204,31 @@ def handle_player_loan_ended(sender, player, from_team, to_team, amount, user = 
     title_image = to_team.logo if team and team.logo else None
     create_news_post(headline, content, author=None, title_image=to_team.logo)
 
+from decimal import Decimal
 @receiver(weekly_bonus_applied)
 def handle_weekly_bonus(sender, instance, **kwargs):
     """
     Create a NewsPost entry summarizing the weekly bonus.
+    Includes category winners AND a ranked list of total team bonuses.
     """
     season = instance.season
     gw = instance.gameweek
 
-    # Build a nice headline:
     headline = f"Weekly Bonus Results – Gameweek {gw} {season}"
 
+    # --- constants (same as in apply_bonuses) ---
+    one = Decimal("1.0")
+    half = Decimal("0.5")
+    third = Decimal("0.3")
 
-    # Build HTML content using your Player and Team fields
+    # --- compute team bonuses ---
+    team_bonuses = {}
+
+    def add_bonus(team, amount):
+        if team:
+            team_bonuses[team] = team_bonuses.get(team, Decimal("0")) + amount
+
+    # Category-wise content
     content = "<strong>Weekly Bonus Winners</strong>"
 
     # Highest point teams
@@ -224,6 +236,7 @@ def handle_weekly_bonus(sender, instance, **kwargs):
         content += "<p><strong>🏆 Highest Point Teams (+1.0M)</strong></p><ul>"
         for team in instance.highest_point_teams.all():
             content += f"<li>{team.name} (Manager: {team.manager_name})</li>"
+            add_bonus(team, one)
         content += "</ul>"
 
     # Highest point players
@@ -232,47 +245,69 @@ def handle_weekly_bonus(sender, instance, **kwargs):
         for player in instance.highest_point_players.all():
             team_name = player.team.name if player.team else "Free Agent"
             content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
+            add_bonus(player.team, one)
         content += "</ul>"
 
+    # Goalkeepers
     if instance.highest_gk_players.exists():
         content += "<h4>🧤 Top Goalkeeper (+0.5M)</h4><ul>"
         for player in instance.highest_gk_players.all():
             team_name = player.team.name if player.team else "Free Agent"
             content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
+            add_bonus(player.team, half)
         content += "</ul>"
 
+    # Defenders
     if instance.highest_df_players.exists():
         content += "<h4>🛡️ Top Defender/s (+0.5M)</h4><ul>"
         for player in instance.highest_df_players.all():
             team_name = player.team.name if player.team else "Free Agent"
             content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
+            add_bonus(player.team, half)
         content += "</ul>"
 
+    # Midfielders
     if instance.highest_mf_players.exists():
-        content += "<h4>⚙️ Top Midfielde/s (+0.5M)</h4><ul>"
+        content += "<h4>⚙️ Top Midfielder/s (+0.5M)</h4><ul>"
         for player in instance.highest_mf_players.all():
             team_name = player.team.name if player.team else "Free Agent"
             content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
+            add_bonus(player.team, half)
         content += "</ul>"
-    
+
+    # Forwards
     if instance.highest_fw_players.exists():
         content += "<h4>⚽ Top Forward/s (+0.5M)</h4><ul>"
         for player in instance.highest_fw_players.all():
             team_name = player.team.name if player.team else "Free Agent"
             content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
+            add_bonus(player.team, half)
         content += "</ul>"
 
+    # Special bonus
     if instance.special_bonus_players.exists():
         content += "<p><strong>🎁 Team of the Week Player/s (+0.3M)</strong></p><ul>"
         for player in instance.special_bonus_players.all():
             team_name = player.team.name if player.team else "Free Agent"
             content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
+            add_bonus(player.team, third)
         content += "</ul>"
 
-    # pick a default image (optional)
-    title_image = "bonus_title_image.png"  
+    # --- Team total bonus summary ---
+    sorted_teams = sorted(
+        [(team, bonus) for team, bonus in team_bonuses.items() if bonus > 0],
+        key=lambda x: x[1],
+        reverse=True
+    )
 
-    # This will default to FHPL author automatically
+    if sorted_teams:
+        content += "<h4>📊 Total Team Bonuses</h4><ol>"
+        for team, bonus in sorted_teams:
+            content += f"<li>{team.name} (Manager: {team.manager_name}) – <b>+{bonus:.1f}M</b></li>"
+        content += "</ol>"
+
+    # Default image (must exist in /media/)
+    title_image = "bonus_title_image.png"
+
+    # Create news post (author = FHPL by default)
     create_news_post(headline, content, title_image)
-    
-

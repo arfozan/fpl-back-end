@@ -65,12 +65,18 @@ class PlayerAdmin(admin.ModelAdmin):
         'first_name',
         'last_name',
         'position',
-        'base_price',
         'total_base_price',
         'weekly_wage',
         'full_season_wage',
         'is_loan',         
         'loan_from_team',   
+        'is_locked',
+        'was_locked',
+        'is_transfer_lock',
+        'is_academy_player',
+        'was_academy_player',
+        'contract_renew_bonus',
+        'contract_expiry',
     )
 
     def get_queryset(self, request):

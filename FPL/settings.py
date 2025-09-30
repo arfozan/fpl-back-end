@@ -36,8 +36,8 @@ ALLOWED_HOSTS = ['127.0.2.2', '192.168.0.50', '192.168.0.3', 'localhost', '127.0
 
 
 # Default bid expiry (change this for testing vs prod)
-BID_EXPIRY = timedelta(hours=24)   # production
-# BID_EXPIRY = timedelta(minutes=5)
+# BID_EXPIRY = timedelta(hours=24)   # production
+BID_EXPIRY = timedelta(minutes=5)
 
 
 # Application definition

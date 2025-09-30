@@ -305,11 +305,11 @@ class TransferHistory(models.Model):
     season = models.ForeignKey('SeasonConfig', on_delete=models.CASCADE)
     player = models.ForeignKey('Player', on_delete=models.CASCADE)
     from_team = models.ForeignKey(
-        'Team', on_delete=models.SET_NULL, null=True,
+        'Team', on_delete=models.SET_NULL, null=True, blank=True,
         related_name="transfers_out", editable=False
     )
     to_team = models.ForeignKey(
-        'Team', on_delete=models.SET_NULL, null=True,
+        'Team', on_delete=models.SET_NULL, null=True, blank=True,
         related_name="transfers_in"
     )
     amount = models.DecimalField(max_digits=3, decimal_places=1, default=0)

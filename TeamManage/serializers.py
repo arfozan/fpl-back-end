@@ -203,6 +203,15 @@ class NewsPostSerializer(serializers.ModelSerializer):
         team = self._get_team(obj)
         return team.manager_name if team else None
 
+class NewsPostCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NewsPost
+        fields = ["headline", "content", "title_image"]
+
+    def create(self, validated_data):
+        user = self.context["request"].user
+        return NewsPost.objects.create(author=user, **validated_data)
+
 class TransferRequestSerializer(serializers.ModelSerializer):
     player_name = serializers.StringRelatedField(source="player", read_only=True)
     to_team_name = serializers.CharField(source="to_team.name", read_only=True)

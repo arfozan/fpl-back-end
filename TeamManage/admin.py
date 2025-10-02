@@ -1,5 +1,5 @@
 from django.contrib import admin, messages
-from .models import SeasonConfig, Team, Player, Match, Round, TransferHistory, WeeklyBonus, TransferWindow, Bid, TeamSeasonStats
+from .models import SeasonConfig, Team, Player, Match, Round, TransferHistory, WeeklyBonus, TransferWindow, Bid, TeamSeasonStats, TeamAchievementRank, TeamAchievement
 from django import forms
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -20,6 +20,7 @@ class TransferWindowAdmin(admin.ModelAdmin):
 @admin.register(SeasonConfig)
 class SeasonConfigAdmin(admin.ModelAdmin):
     list_display = ("season_name", "current_gameweek", "is_season_active")
+    search_fields = ("season_name",)
 
     def save_model(self, request, obj, form, change):
         # Detect if activation state changed to True
@@ -76,7 +77,7 @@ class PlayerAdmin(admin.ModelAdmin):
         'is_academy_player',
         'was_academy_player',
         'contract_renew_bonus',
-        'contract_expiry',
+        # 'contract_expiry',
     )
 
     def get_queryset(self, request):
@@ -199,6 +200,17 @@ class WeeklyBonusAdmin(admin.ModelAdmin):
         "special_bonus_players",
     )
 
+    def formfield_for_manytomany(self, db_field, request, **kwargs):
+        if db_field.name == "highest_gk_players":
+            kwargs["queryset"] = Player.objects.filter(position="GK")
+        elif db_field.name == "highest_df_players":
+            kwargs["queryset"] = Player.objects.filter(position="DF")
+        elif db_field.name == "highest_mf_players":
+            kwargs["queryset"] = Player.objects.filter(position="MF")
+        elif db_field.name == "highest_fw_players":
+            kwargs["queryset"] = Player.objects.filter(position="FW")
+        return super().formfield_for_manytomany(db_field, request, **kwargs)
+
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
         # validate M2M once and apply bonuses only once
@@ -221,6 +233,16 @@ class TransferRequestAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         queryset = super().get_queryset(request)
         return queryset.select_related('player', 'from_team', 'to_team')
-
 admin.site.register(TransferRequest, TransferRequestAdmin)
 
+class TeamAchievementRankInline(admin.TabularInline):  # or StackedInline
+    model = TeamAchievementRank
+    extra = 1  # show 1 empty row by default
+    autocomplete_fields = ["season"]  # nice dropdown for seasons
+
+
+@admin.register(TeamAchievement)
+class TeamAchievementAdmin(admin.ModelAdmin):
+    list_display = ("team", "league_champion", "ucl_champion", "created_at")
+    search_fields = ("team__name", "league_champion", "ucl_champion")
+    inlines = [TeamAchievementRankInline]

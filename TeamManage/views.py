@@ -1,7 +1,7 @@
 from rest_framework import viewsets
 from rest_framework.permissions import AllowAny
 from .models import (Team, Player, SeasonConfig, TransferHistory,
-                     Match, Bid, NewsPost, TeamSeasonStats, TransferWindow, TransferRequest)
+                     Match, Bid, NewsPost, TeamSeasonStats, TransferWindow, TransferRequest, TeamAchievement)
 from .serializers import (
     TeamSummarySerializer, PlayerSerializer,
     SeasonConfigSerializer, TransferHistorySerializer,
@@ -67,6 +67,25 @@ def team_players(request, team_id):
 
     serializer = PlayerSerializer(players_sorted, many=True)
 
+    # 🔹 Team Achievements (merge here)
+    achievements = TeamAchievement.objects.filter(team=team).prefetch_related("ranks__season")
+
+    achievements_data = []
+    for ach in achievements:
+        achievements_data.append({
+            "league_champion": ach.league_champion,
+            "league_runner_up": ach.league_runner_up,
+            "ucl_champion": ach.ucl_champion,
+            "ucl_runner_up": ach.ucl_runner_up,
+            "ranks": [
+                {
+                    "season": r.season.season_name,
+                    "rank": r.rank
+                }
+                for r in ach.ranks.all()
+            ]
+        })
+
     return Response({
         "team_name": team.name,
         "logo": request.build_absolute_uri(team.logo.url) if team.logo else None,
@@ -76,6 +95,7 @@ def team_players(request, team_id):
         "total_players": main_players_count,
         "academy_players": academy_players_count,
         "players": serializer.data,
+        "achievements": achievements_data,
     })
 
 @api_view(['GET'])
@@ -578,6 +598,7 @@ def current_status(request):
             "name": str(transfer_window),  # e.g. "Summer 2026"
             "season": transfer_window.season,
             "year": transfer_window.year,
+            "deadline": transfer_window.free_transfer_deadline
         }
 
     return Response({
@@ -647,6 +668,10 @@ class TransferRequestViewSet(viewsets.ModelViewSet):
         user_team = getattr(self.request.user, "team", None)
         if not user_team:
             raise ValidationError("Logged-in user is not assigned to a team.")
+        
+        has_contract_open = TransferWindow.objects.filter(is_contract_open = True).first()
+        if not has_contract_open:
+            raise ValidationError({"error":["Transfer is Closed Totally."]})
         player_id = self.request.data.get("player")
         is_loan = self.request.data.get("is_loan") 
         is_loan = str(is_loan).lower() in ["true", "1", "yes"]
@@ -741,6 +766,10 @@ class TransferRequestViewSet(viewsets.ModelViewSet):
         tr = self.get_object()
         if tr.status != TransferRequest.STATUS_PENDING:
             return Response({"detail": "TransferRequest not pending."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        has_contract_open = TransferWindow.objects.filter(is_contract_open = True).first()
+        if not has_contract_open:
+            raise ValidationError({"error":["Transfer is Closed Totally."]})
         
         # check contract expiry first
         player = tr.player  # or tr.player_id if you store differently

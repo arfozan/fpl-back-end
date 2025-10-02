@@ -25,3 +25,7 @@ Advance to next Game Week (Run before game week starts)
 Loan End and return to Parent update_player_clubs
     python manage.py game_week_end
 
+update player total points-
+ TeamManage/management/commands/import_player_points.py
+
+

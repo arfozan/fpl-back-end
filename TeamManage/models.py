@@ -5,7 +5,7 @@ from rest_framework.exceptions import ValidationError
 from django.utils import timezone
 from decimal import Decimal
 from django.conf import settings
-from .signals import weekly_bonus_applied
+from .signals import weekly_bonus_applied, player_released
 
 class TransferWindow(models.Model):
     SEASON_CHOICES = [
@@ -17,6 +17,7 @@ class TransferWindow(models.Model):
     year = models.PositiveIntegerField()
     is_active = models.BooleanField(default=False)
     is_contract_open = models.BooleanField(default=False)
+    free_transfer_deadline = models.DateTimeField(default=timezone.now)
 
     class Meta:
         constraints = [
@@ -30,6 +31,7 @@ class TransferWindow(models.Model):
         1️⃣ Deactivate all other windows.
         2️⃣ Automatically open contracts (is_contract_open=True).
         3️⃣ Free all players whose contract_expiry matches this window.
+        4️⃣ Log releases in TransferHistory.
         """
         with transaction.atomic():
             if self.is_active:
@@ -39,31 +41,45 @@ class TransferWindow(models.Model):
                 # Always open contracts when active
                 self.is_contract_open = True
 
-                # Save first so self.id is available for Player updates
+                # Save first so self.id is available
                 super().save(*args, **kwargs)
 
-                # Update players whose contract expires in this window
-                from TeamManage.models import Player  # ✅ Replace with actual app name
-                from TeamManage.signals import player_released
-                expired_players = list(Player.objects.filter(contract_expiry=self))
+                # Expired players with a team
+                expired_players = list(Player.objects.filter(contract_expiry=self, team__isnull=False))
 
-                Player.objects.filter(contract_expiry=self).update(
+                # Release them
+                Player.objects.filter(contract_expiry=self, team__isnull=False).update(
                     team=None,
                     is_locked=False,
                     was_locked=False,
                     is_transfer_lock=False,
                     contract_renew_bonus=0
                 )
+
+                # Log release + fire signals
+                active_season = SeasonConfig.get_active_season()
                 for p in expired_players:
-                    old_team = p.team  # you still have team before update in `p`
+                    old_team = p.team
+
+                    TransferHistory.objects.create(
+                        season=active_season,   # ✅ keep using SeasonConfig
+                        player=p,
+                        from_team=old_team,
+                        to_team=None,
+                        amount=0,
+                        description=f"{p.first_name} {p.last_name} released after contract expiry"
+                    )
+
                     player_released.send(
                         sender=self.__class__,
                         player=p,
                         team=old_team,
-                        contract_expiry=self,  # 👈 pass which window expired
-                        user=old_team.user_name  # since automatic
-                )
-                return  # ✅ Important to avoid saving twice
+                        contract_expiry=self,
+                        user=old_team.user_name
+                    )
+
+                return  # avoid double save
+
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -157,6 +173,7 @@ class Player(models.Model):
     photo = models.ImageField(upload_to='player_photos/')
     club_name = models.CharField(max_length=100, null=True, blank=True)
     position = models.CharField(max_length=2, choices=POSITIONS)
+    points = models.IntegerField(default=0) 
     bonus_earning = models.DecimalField(max_digits=10, decimal_places=1, default=0, help_text="Total bonus earned by the player")
     is_locked = models.BooleanField(default=False)
     was_locked = models.BooleanField(default=False)
@@ -537,3 +554,43 @@ class TransferRequest(models.Model):
 
     def __str__(self):
         return f"Request {self.pk} {self.player} {self.from_team} -> {self.to_team} ({self.status})"
+
+class TeamAchievement(models.Model):
+    team = models.ForeignKey(
+        "Team",
+        on_delete=models.CASCADE,
+        related_name="achievements"
+    )
+
+    # League Achievements
+    league_champion = models.CharField(max_length=500, blank=True, null=True)
+    league_runner_up = models.CharField(max_length=500, blank=True, null=True)
+
+    # UCL Achievements
+    ucl_champion = models.CharField(max_length=500, blank=True, null=True)
+    ucl_runner_up = models.CharField(max_length=500, blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.team.name} Achievements"
+
+class TeamAchievementRank(models.Model):
+    achievement = models.ForeignKey(
+        TeamAchievement,
+        on_delete=models.CASCADE,
+        related_name="ranks"
+    )
+    season = models.ForeignKey(
+        SeasonConfig,
+        on_delete=models.CASCADE,
+        related_name="achievement_ranks"
+    )
+    rank = models.IntegerField()
+
+    class Meta:
+        unique_together = ("achievement", "season")
+
+    def __str__(self):
+        return f"{self.achievement.team.name} - {self.season.season_name} (Rank {self.rank})"
+

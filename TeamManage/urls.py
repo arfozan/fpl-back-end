@@ -5,7 +5,7 @@ from django.conf.urls.static import static
 from .views import (
     SeasonConfigViewSet, ChangePasswordView, update_team_images, get_all_teams_summary, team_players, player_details, PlayerTransferHistoryAPIView,
     TeamTransferHistoryAPIView, players_list, current_status, NewsPostDetailView, NewsPostListCreateView, my_team_players,
-    list_transfer_windows, extend_contract, TransferRequestViewSet, get_my_team, release_player
+    list_transfer_windows, extend_contract, TransferRequestViewSet, get_my_team, release_player, maintenance_status
 )
 from . import views
 
@@ -40,5 +40,6 @@ urlpatterns = router.urls + [
     path("players/<int:player_id>/release_player/", release_player, name="release-player"),
     path("transfer-windows/", list_transfer_windows, name="transfer-windows"),
     path("players/available/", views.available_players, name="available-players"),
+    path("maintenance/", maintenance_status, name="maintenance_status"),
 
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

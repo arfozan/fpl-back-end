@@ -594,3 +594,10 @@ class TeamAchievementRank(models.Model):
     def __str__(self):
         return f"{self.achievement.team.name} - {self.season.season_name} (Rank {self.rank})"
 
+class MaintenanceMode(models.Model):
+    is_active = models.BooleanField(default=False)
+    message = models.CharField(max_length=255, blank=True, null=True)
+
+    def __str__(self):
+        return "ON" if self.is_active else "OFF"
+

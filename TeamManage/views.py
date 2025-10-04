@@ -1,7 +1,7 @@
 from rest_framework import viewsets
 from rest_framework.permissions import AllowAny
 from .models import (Team, Player, SeasonConfig, TransferHistory,
-                     Match, Bid, NewsPost, TeamSeasonStats, TransferWindow, TransferRequest, TeamAchievement)
+                     Match, Bid, NewsPost, TeamSeasonStats, TransferWindow, TransferRequest, TeamAchievement, MaintenanceMode)
 from .serializers import (
     TeamSummarySerializer, PlayerSerializer,
     SeasonConfigSerializer, TransferHistorySerializer,
@@ -979,4 +979,10 @@ def release_player(request, player_id):
         "transfer_history_created": True
     })
 
+@api_view(["GET"])
+def maintenance_status(request):
+    mode = MaintenanceMode.objects.first()
+    if mode and mode.is_active:
+        return Response({"maintenance": True, "message": mode.message})
+    return Response({"maintenance": False})
 

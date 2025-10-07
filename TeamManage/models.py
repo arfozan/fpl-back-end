@@ -601,3 +601,21 @@ class MaintenanceMode(models.Model):
     def __str__(self):
         return "ON" if self.is_active else "OFF"
 
+class LoanExtensionRequest(models.Model):
+    transfer = models.ForeignKey('TransferHistory', on_delete=models.CASCADE, related_name="loan_extensions")
+    requested_by = models.ForeignKey('Team', on_delete=models.CASCADE, related_name="loan_extension_requests")
+    new_loan_gameweek = models.IntegerField()
+    is_approved = models.BooleanField(null=True, blank=True)  # None = pending, True = accepted, False = rejected
+    requested_at = models.DateTimeField(auto_now_add=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    def clean(self):
+        if not self.transfer.is_loan:
+            raise ValidationError("Loan extension can only be requested for a loan deal.")
+        if self.requested_by != self.transfer.to_team:
+            raise ValidationError("Only the current loan team can request an extension.")
+        if self.new_loan_gameweek <= self.transfer.loan_gameweek:
+            raise ValidationError("New loan gameweek must be greater than current loan gameweek.")
+
+    def __str__(self):
+        return f"Loan Extension Request for {self.transfer.player} (GW {self.new_loan_gameweek})"

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid,TransferWindow, NewsPost, TeamSeasonStats, TransferRequest, PostImage
+from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid,TransferWindow, NewsPost, TeamSeasonStats, TransferRequest, PostImage, LoanExtensionRequest
 from decimal import Decimal
 from rest_framework.exceptions import ValidationError
 
@@ -251,3 +251,111 @@ class TransferRequestSerializer(serializers.ModelSerializer):
                     "loan_gameweek": "Loan must be at least 7 gameweeks ahead."
                 })
         return attrs
+
+class ActiveLoanSerializer(serializers.ModelSerializer):
+    player_name = serializers.SerializerMethodField()
+    position = serializers.CharField(source="player.position", read_only=True)
+    photo = serializers.ImageField(source="player.photo", read_only=True)
+    loan_from_team = serializers.CharField(source="from_team.name", read_only=True)
+
+    class Meta:
+        model = TransferHistory
+        fields = [
+            "id",
+            "player_name",
+            "position",
+            "photo",
+            "loan_from_team",
+            "loan_gameweek",
+            "transfer_date",
+        ]
+
+    def get_player_name(self, obj):
+        return f"{obj.player.first_name} {obj.player.last_name}"
+
+class LoanExtensionRequestSerializer(serializers.ModelSerializer):
+    player_name = serializers.SerializerMethodField()
+    to_team_name = serializers.CharField(source='transfer.to_team.name', read_only=True)
+    current_gameweek = serializers.IntegerField(source='transfer.loan_gameweek', read_only=True)
+    transfer_id = serializers.IntegerField(source='transfer.id', read_only=True)
+    transfer = serializers.PrimaryKeyRelatedField(
+        queryset=TransferHistory.objects.all()
+    )
+
+
+    class Meta:
+        model = LoanExtensionRequest
+        fields = [
+            'id',
+            'transfer',
+            'transfer_id',
+            'requested_by',
+            'new_loan_gameweek',
+            'is_approved',
+            'requested_at',
+            'responded_at',
+            'player_name',
+            'to_team_name',
+            'current_gameweek',
+        ]
+        read_only_fields = ['requested_by', 'is_approved', 'requested_at', 'responded_at']
+
+    def get_player_name(self, obj):
+        return f"{obj.transfer.player.first_name} {obj.transfer.player.last_name}"
+    
+    def validate(self, data):
+        transfer = data.get('transfer')
+        new_gw = data.get('new_loan_gameweek')
+
+        if not transfer.is_loan:
+            raise serializers.ValidationError("Loan extension can only be requested for a loan deal.")
+
+        request_user = self.context['request'].user
+        try:
+            user_team = transfer.to_team
+            if user_team.user_name != request_user:
+                raise serializers.ValidationError("Only the current loan team can request an extension.")
+        except AttributeError:
+            raise serializers.ValidationError("Transfer must have a valid to_team.")
+
+        if transfer.loan_gameweek is not None and new_gw <= transfer.loan_gameweek:
+            raise serializers.ValidationError("New loan gameweek must be greater than current loan gameweek.")
+
+        return data
+
+class ActiveLoanWithExtensionSerializer(serializers.ModelSerializer):
+    player_name = serializers.SerializerMethodField()
+    position = serializers.CharField(source="player.position", read_only=True)
+    photo = serializers.ImageField(source="player.photo", read_only=True)
+    loan_from_team = serializers.CharField(source="from_team.name", read_only=True)
+    transfer_id = serializers.IntegerField(source='id', read_only=True)
+
+    # These are from LoanExtensionRequest if exists
+    extension_id = serializers.SerializerMethodField()
+    requested_gameweek = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TransferHistory
+        fields = [
+            "transfer_id",
+            "player_name",
+            "position",
+            "photo",
+            "loan_from_team",
+            "loan_gameweek",
+            "transfer_date",
+            "extension_id",
+            "requested_gameweek",
+        ]
+
+    def get_player_name(self, obj):
+        return f"{obj.player.first_name} {obj.player.last_name}"
+
+    def get_extension_id(self, obj):
+        # find any existing *pending* extension request for this transfer
+        ext = obj.loan_extensions.filter(is_approved__isnull=True).first()
+        return ext.id if ext else None
+
+    def get_requested_gameweek(self, obj):
+        ext = obj.loan_extensions.filter(is_approved__isnull=True).first()
+        return ext.new_loan_gameweek if ext else None

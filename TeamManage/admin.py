@@ -246,3 +246,19 @@ class TeamAchievementAdmin(admin.ModelAdmin):
     list_display = ("team", "league_champion", "ucl_champion", "created_at")
     search_fields = ("team__name", "league_champion", "ucl_champion")
     inlines = [TeamAchievementRankInline]
+
+from .models import MaintenanceMode, LoanExtensionRequest
+
+@admin.register(LoanExtensionRequest)
+class LoanExtensionRequestAdmin(admin.ModelAdmin):
+    list_display = (
+        'transfer', 
+        'requested_by', 
+        'new_loan_gameweek', 
+        'is_approved', 
+        'requested_at', 
+        'responded_at'
+    )
+    list_filter = ('is_approved', 'requested_at')
+    search_fields = ('transfer__player__name', 'requested_by__name')  # Adjust field names as needed
+    readonly_fields = ('requested_at', 'responded_at')

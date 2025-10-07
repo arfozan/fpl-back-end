@@ -180,8 +180,8 @@ def handle_player_loan_ended(sender, player, from_team, to_team, amount, user = 
         {from_team.name} to {to_team.name}, and will now return to his parent club at the conclusion of Gameweek {loan_gameweek}. 
         After a productive spell, {player.first_name} is set to rejoin {from_team.name} for the remainder of the season. 👏</p>
 
-        <p>During his time at {to_team.name}, {player.first_name} featured in {loan_gameweek} Gameweeks, contributing {player.goals} 
-        goals and {player.assists} assists, helping the team strengthen their position in the league. The loan deal, which was valued at 
+        <p>During his time at {to_team.name}, {player.first_name} featured in {loan_gameweek} Gameweeks, contributing
+        goals and assists, helping the team strengthen their position in the league. The loan deal, which was valued at 
         {amount}M, provided {to_team.name} with much-needed depth, and {player.first_name} showcased his talent on the pitch.</p>
 
         <p>{to_team.manager_name}, the manager of {to_team.name}, expressed their satisfaction with the loan, stating, 

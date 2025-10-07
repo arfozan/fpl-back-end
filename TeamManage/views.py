@@ -1,12 +1,13 @@
 from rest_framework import viewsets
 from rest_framework.permissions import AllowAny
 from .models import (Team, Player, SeasonConfig, TransferHistory,
-                     Match, Bid, NewsPost, TeamSeasonStats, TransferWindow, TransferRequest, TeamAchievement, MaintenanceMode)
+                     Match, Bid, NewsPost, TeamSeasonStats, TransferWindow, TransferRequest, TeamAchievement, MaintenanceMode, LoanExtensionRequest)
 from .serializers import (
     TeamSummarySerializer, PlayerSerializer,
     SeasonConfigSerializer, TransferHistorySerializer,
     MatchSerializer, BidSerializer, TransferWindow, NewsPostSerializer, TeamSeasonStatsSerializer,
-    TransferWindowSerializer, TransferRequestSerializer, NewsPostCreateSerializer
+    TransferWindowSerializer, TransferRequestSerializer, NewsPostCreateSerializer, ActiveLoanSerializer,
+    LoanExtensionRequestSerializer, ActiveLoanWithExtensionSerializer
 )
 from django.db import models
 from django.db.models import Q, Max, Sum
@@ -985,4 +986,98 @@ def maintenance_status(request):
     if mode and mode.is_active:
         return Response({"maintenance": True, "message": mode.message})
     return Response({"maintenance": False})
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def my_loan_players(request):
+    # 1️⃣ Ensure contract window open
+    if not TransferWindow.objects.filter(is_contract_open=True).exists():
+        return Response({"detail": "No active transfer window open."}, status=400)
+
+    # 2️⃣ Get manager’s team
+    try:
+        team = Team.objects.get(user_name=request.user)
+    except Team.DoesNotExist:
+        return Response({"detail": "You are not assigned to any team."}, status=403)
+
+    # 3️⃣ Fetch active loans
+    active_loans = TransferHistory.objects.filter(
+        to_team=team,
+        is_loan=True,
+        is_loan_end=False
+    )
+
+    serializer = ActiveLoanSerializer(active_loans, many=True)
+    serializer = ActiveLoanWithExtensionSerializer(active_loans, many=True)
+    return Response(serializer.data)
+
+class LoanExtensionRequestViewSet(viewsets.ModelViewSet):
+    serializer_class = LoanExtensionRequestSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        try:
+            user_team = Team.objects.get(user_name=user)
+        except Team.DoesNotExist:
+            return LoanExtensionRequest.objects.none()
+
+        # Include both sides: the parent team and the loaning team
+        return LoanExtensionRequest.objects.filter(
+            Q(transfer__from_team=user_team) | Q(requested_by=user_team)
+        ).distinct()
+
+    def perform_create(self, serializer):
+        user_team = Team.objects.get(user_name=self.request.user)
+        serializer.save(requested_by=user_team)
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        loan_request = self.get_object()
+        original_team = loan_request.transfer.from_team
+
+        # ensure only original team can approve
+        if original_team.user_name != request.user:
+            return Response({"error": "Only original team can approve."}, status=status.HTTP_403_FORBIDDEN)
+
+        loan_request.is_approved = True
+        loan_request.responded_at = timezone.now()
+        loan_request.transfer.loan_gameweek = loan_request.new_loan_gameweek
+        loan_request.transfer.save()
+        loan_request.save()
+
+        loan_request.delete()
+
+        return Response({"status": "approved", "new_loan_gameweek": loan_request.new_loan_gameweek})
+
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        loan_request = self.get_object()
+        original_team = loan_request.transfer.from_team
+
+        if original_team.user_name != request.user:
+            return Response({"error": "Only original team can reject."}, status=status.HTTP_403_FORBIDDEN)
+
+        loan_request.is_approved = False
+        loan_request.responded_at = timezone.now()
+        loan_request.save()
+        loan_request.delete()
+        return Response({"status": "rejected"})
+    
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        loan_request = self.get_object()
+        requesting_team = loan_request.requested_by
+
+        # Only the requesting team can cancel
+        if requesting_team.user_name != request.user:
+            return Response({"error": "Only the requesting team can cancel this request."}, status=status.HTTP_403_FORBIDDEN)
+
+        # Only allow cancel if the request is still pending
+        if loan_request.is_approved is not None:
+            return Response({"error": "Cannot cancel a request that has already been approved or rejected."}, status=status.HTTP_400_BAD_REQUEST)
+
+        loan_request.delete()
+        return Response({"status": "cancelled"}, status=status.HTTP_200_OK)
+
 

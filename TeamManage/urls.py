@@ -5,13 +5,15 @@ from django.conf.urls.static import static
 from .views import (
     SeasonConfigViewSet, ChangePasswordView, update_team_images, get_all_teams_summary, team_players, player_details, PlayerTransferHistoryAPIView,
     TeamTransferHistoryAPIView, players_list, current_status, NewsPostDetailView, NewsPostListCreateView, my_team_players,
-    list_transfer_windows, extend_contract, TransferRequestViewSet, get_my_team, release_player, maintenance_status
+    list_transfer_windows, extend_contract, TransferRequestViewSet, get_my_team, release_player, maintenance_status,
+    my_loan_players, LoanExtensionRequestViewSet,
 )
 from . import views
 
 router = DefaultRouter()
 router.register(r'seasons', SeasonConfigViewSet)
 router.register(r"transfer-requests", TransferRequestViewSet, basename="transferrequest")
+router.register(r'loan-extension-requests', LoanExtensionRequestViewSet, basename='loan-extension-requests')
 
 urlpatterns = router.urls + [
     path('change-password/', ChangePasswordView.as_view(), name='change-password'),
@@ -41,5 +43,6 @@ urlpatterns = router.urls + [
     path("transfer-windows/", list_transfer_windows, name="transfer-windows"),
     path("players/available/", views.available_players, name="available-players"),
     path("maintenance/", maintenance_status, name="maintenance_status"),
+    path("my-loaned-players/", my_loan_players, name="my-loan-players"),
 
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

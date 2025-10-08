@@ -2,11 +2,6 @@ from django.contrib import admin, messages
 from .models import SeasonConfig, Team, Player, Match, Round, TransferHistory, WeeklyBonus, TransferWindow, Bid, TeamSeasonStats, TeamAchievementRank, TeamAchievement
 from django import forms
 from django.core.exceptions import ValidationError
-from django.utils import timezone
-from django.db import transaction
-from django.db.models import Count, Q
-from decimal import Decimal
-from datetime import timedelta
 
 @admin.register(TransferWindow)
 class TransferWindowAdmin(admin.ModelAdmin):

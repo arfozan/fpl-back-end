@@ -19,7 +19,7 @@ class PlayerSerializer(serializers.ModelSerializer):
         model = Player
         fields = [
             'id', 'first_name', 'last_name', 'full_name', 'photo',
-            'club_name', 'position', 'team_name', 'base_price', 'points',
+            'club_name', 'position', 'team_name', 'base_price', 'points', 'bonus_earning',
             'contract_renew_bonus', 'contract_expiry', 'is_academy_player',
             'weekly_wage', 'full_season_wage', 'transfer_history', 'current_bid', 'min_bid'
         ]
@@ -150,11 +150,13 @@ class BidSerializer(serializers.ModelSerializer):
     player_name = serializers.SerializerMethodField()
     player_photo = serializers.SerializerMethodField()
     team_name = serializers.CharField(source="team.name", read_only=True)
+    club_name = serializers.CharField(source="player.club_name", read_only=True)
+    position = serializers.CharField(source="player.position", read_only=True)
     amount = serializers.SerializerMethodField()
 
     class Meta:
         model = Bid
-        fields = ["id", "player", "player_name", "player_photo", "team_name", "amount", "expires_at"]
+        fields = ["id", "player", "player_name", "club_name", "position", "player_photo", "team_name", "amount", "expires_at"]
 
     def get_player_name(self, obj):
         return f"{obj.player.first_name} {obj.player.last_name}"

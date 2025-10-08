@@ -22,6 +22,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         update_mode = options['update']
+        new_players = []
 
         url = "https://fantasy.premierleague.com/api/bootstrap-static/"
         response = requests.get(url)
@@ -87,6 +88,8 @@ class Command(BaseCommand):
                     updated_count += 1
 
             except Player.DoesNotExist:
+                new_players.append(f"{first_name} {last_name}")
+
                 # New player → Always add
                 player = Player(
                     first_name=first_name,
@@ -103,8 +106,13 @@ class Command(BaseCommand):
                     player.save()
 
                 imported_count += 1
+                new_players.append(f"{first_name} {last_name}")
 
         if update_mode:
             self.stdout.write(self.style.SUCCESS(f"✅ Updated {updated_count} players, added {imported_count} new players"))
+            if new_players:
+                self.stdout.write("\n🆕 New Players Added:")
+                for name in new_players:
+                    self.stdout.write(f" - {name}")
         else:
             self.stdout.write(self.style.SUCCESS(f"✅ Imported {imported_count} new players (no updates to existing ones)"))

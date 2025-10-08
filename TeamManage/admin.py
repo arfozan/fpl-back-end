@@ -63,13 +63,11 @@ class PlayerAdmin(admin.ModelAdmin):
         'position',
         'total_base_price',
         'weekly_wage',
-        'full_season_wage',
-        'is_loan',         
-        'loan_from_team',   
+        'full_season_wage',         
+        # 'loan_from_team',   
         'is_locked',
         'was_locked',
         'is_transfer_lock',
-        'is_academy_player',
         'was_academy_player',
         'contract_renew_bonus',
         # 'contract_expiry',
@@ -176,7 +174,7 @@ class TransferHistoryAdmin(admin.ModelAdmin):
         'player', 'from_team', 'to_team', 'amount',
         'transfer_date', 'is_loan', 'loan_gameweek', 'loan_end_flag'
     )
-    readonly_fields = [f.name for f in TransferHistory._meta.fields]
+    # readonly_fields = [f.name for f in TransferHistory._meta.fields]
 
     def loan_end_flag(self, obj):
         return "✅" if obj.is_loan_end else ""

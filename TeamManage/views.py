@@ -90,6 +90,8 @@ def team_players(request, team_id):
     return Response({
         "team_name": team.name,
         "logo": request.build_absolute_uri(team.logo.url) if team.logo else None,
+        "manager_name": team.manager_name,
+        "manager_photo": request.build_absolute_uri(team.manager_photo.url) if team.logo else None,
         "total_weekly_wage": total_weekly_wage,
         "forecast_end_balance": team.forecast_end_balance,
         "current_balance": team.current_balance,
@@ -145,7 +147,7 @@ def update_team_images(request):
         return Response({"error": "Team not found"}, status=404)
 
 class SeasonConfigViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = SeasonConfig.objects.all()
+    queryset = SeasonConfig.objects.all().order_by('-id')
     serializer_class = SeasonConfigSerializer
 
 class ChangePasswordView(APIView):
@@ -892,8 +894,11 @@ def available_players(request):
         {
             "id": p.id,
             "full_name": p.first_name + " " + p.last_name,
+            "photo": request.build_absolute_uri(p.photo.url) if p.photo else None,
+            "club": p.club_name,
             "team": p.team.name if p.team else None,
             "position": p.position,
+            "points": p.points,
         }
         for p in qs
     ]

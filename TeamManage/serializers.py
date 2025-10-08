@@ -118,11 +118,12 @@ class TransferHistorySerializer(serializers.ModelSerializer):
     player_name = serializers.CharField(source='player.__str__', read_only=True)
     from_team_name = serializers.CharField(source='from_team.name', read_only=True)
     to_team_name = serializers.CharField(source='to_team.name', read_only=True)
+    season_name = serializers.CharField(source='season.season_name', read_only=True)
 
     class Meta:
         model = TransferHistory
         fields = [
-            'id', 'season', 'player_name', 'from_team_name', 'to_team_name',
+            'id', 'season', 'season_name', 'player_name', 'from_team_name', 'to_team_name',
             'amount', 'transfer_date', 'is_loan', 'loan_gameweek',
             'is_loan_end', 'description'
         ]
@@ -282,7 +283,6 @@ class LoanExtensionRequestSerializer(serializers.ModelSerializer):
         queryset=TransferHistory.objects.all()
     )
 
-
     class Meta:
         model = LoanExtensionRequest
         fields = [
@@ -320,6 +320,11 @@ class LoanExtensionRequestSerializer(serializers.ModelSerializer):
 
         if transfer.loan_gameweek is not None and new_gw <= transfer.loan_gameweek:
             raise serializers.ValidationError("New loan gameweek must be greater than current loan gameweek.")
+        if transfer.loan_gameweek is not None and new_gw > 38:
+            raise serializers.ValidationError({"Error": ["Loan gameweek cant be greater than 38 gameweek."]})
+        # raise serializers.ValidationError({
+        #             "Error": ["Loan gameweek is required for loan offers."]
+        #         })
 
         return data
 

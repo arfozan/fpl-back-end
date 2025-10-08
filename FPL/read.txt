@@ -12,7 +12,7 @@ FPL/TeamManage/management/import_fpl_players.py
     python manage.py import_fpl_players --update
 
 Update free players base price:
-    python manage.py update_free_player_prices
+    python manage.py update_unassigned_player_prices
 
 
 

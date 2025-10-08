@@ -217,24 +217,6 @@ class WeeklyBonusAdmin(admin.ModelAdmin):
         form.instance.validate_m2m()
         form.instance.apply_bonuses()
 
-@admin.register(Bid)
-class BidAdmin(admin.ModelAdmin):
-    list_display = ("player", "team", "amount", "created_at", "expires_at")
-    list_filter = ("team", "player")
-    search_fields = ("player__name", "team__name")
-
-from .models import TransferRequest
-class TransferRequestAdmin(admin.ModelAdmin):
-    list_display = ('player', 'from_team', 'to_team', 'amount', 'is_loan', 'status', 'expires_at', 'created_at', 'updated_at')
-    list_filter = ('status', 'from_team', 'to_team', 'is_loan')
-    search_fields = ('player__name', 'from_team__name', 'to_team__name', 'message')
-    ordering = ('-created_at',)
-
-    def get_queryset(self, request):
-        queryset = super().get_queryset(request)
-        return queryset.select_related('player', 'from_team', 'to_team')
-admin.site.register(TransferRequest, TransferRequestAdmin)
-
 class TeamAchievementRankInline(admin.TabularInline):  # or StackedInline
     model = TeamAchievementRank
     extra = 1  # show 1 empty row by default
@@ -247,18 +229,3 @@ class TeamAchievementAdmin(admin.ModelAdmin):
     search_fields = ("team__name", "league_champion", "ucl_champion")
     inlines = [TeamAchievementRankInline]
 
-from .models import MaintenanceMode, LoanExtensionRequest
-
-@admin.register(LoanExtensionRequest)
-class LoanExtensionRequestAdmin(admin.ModelAdmin):
-    list_display = (
-        'transfer', 
-        'requested_by', 
-        'new_loan_gameweek', 
-        'is_approved', 
-        'requested_at', 
-        'responded_at'
-    )
-    list_filter = ('is_approved', 'requested_at')
-    search_fields = ('transfer__player__name', 'requested_by__name')  # Adjust field names as needed
-    readonly_fields = ('requested_at', 'responded_at')

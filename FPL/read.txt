@@ -11,6 +11,10 @@ FPL/TeamManage/management/import_fpl_players.py
     update existing players status (base price, team name etc)
     python manage.py import_fpl_players --update
 
+Update free players base price:
+    python manage.py update_unassigned_player_prices
+
+
 
 FPL/TeamManage/management/update_players_club
     python manage.py update_player_clubs

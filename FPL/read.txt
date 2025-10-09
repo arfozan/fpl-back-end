@@ -5,7 +5,7 @@ run celery worker-
 celery -A FPL worker -l info -P solo
 
 FPL/TeamManage/management/import_fpl_players.py
-    import players from FPL
+   New player import from FPL
     python manage.py import_fpl_players
 
     update existing players status (base price, team name etc)

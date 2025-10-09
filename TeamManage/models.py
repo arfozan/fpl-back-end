@@ -78,8 +78,12 @@ class TransferWindow(models.Model):
                         user=old_team.user_name
                     )
 
+                from django.core.management import call_command
+                try:
+                    call_command("unlock_players")
+                except Exception as e:
+                    print(f"⚠️ Error running post_window_activation: {e}")
                 return  # avoid double save
-
         super().save(*args, **kwargs)
 
     def __str__(self):

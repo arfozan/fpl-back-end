@@ -6,4 +6,5 @@ class Command(BaseCommand):
 
     def handle(self, *args, **kwargs):
         updated_count = Player.objects.update(is_locked=False)
+        updated_count = Player.objects.update(is_transfer_lock=False)
         self.stdout.write(self.style.SUCCESS(f"Unlocked {updated_count} players."))

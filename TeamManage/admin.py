@@ -64,7 +64,7 @@ class PlayerAdmin(admin.ModelAdmin):
         'total_base_price',
         'weekly_wage',
         'full_season_wage',         
-        # 'loan_from_team',   
+        'loan_from_team',   
         'is_locked',
         'was_locked',
         'is_transfer_lock',

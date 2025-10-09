@@ -49,17 +49,19 @@ class Command(BaseCommand):
             if not position_code:
                 continue
 
-            # Prepare photo filenames
+            # Prepare photo filename
             photo_code = p.get("photo", "")
             filename_png = f"{first_name}_{last_name}.png".replace(" ", "_")
             filename_jpg = f"{first_name}_{last_name}.jpg".replace(" ", "_")
 
             # Function to get player photo
             def fetch_photo():
+                # Try PNG
                 url_png = f"https://resources.premierleague.com/premierleague25/photos/players/110x140/{photo_code.replace('.jpg', '.png')}"
                 r = requests.get(url_png)
                 if r.status_code == 200:
                     return filename_png, r
+                # Fallback to JPG
                 url_jpg = f"https://resources.premierleague.com/premierleague25/photos/players/110x140/{photo_code}"
                 r = requests.get(url_jpg)
                 if r.status_code == 200:
@@ -86,6 +88,8 @@ class Command(BaseCommand):
                     updated_count += 1
 
             except Player.DoesNotExist:
+                new_players.append(f"{first_name} {last_name}")
+
                 # New player → Always add
                 player = Player(
                     first_name=first_name,
@@ -104,15 +108,11 @@ class Command(BaseCommand):
                 imported_count += 1
                 new_players.append(f"{first_name} {last_name}")
 
-        # --- Final Output ---
         if update_mode:
             self.stdout.write(self.style.SUCCESS(f"✅ Updated {updated_count} players, added {imported_count} new players"))
+            if new_players:
+                self.stdout.write("\n🆕 New Players Added:")
+                for name in new_players:
+                    self.stdout.write(f" - {name}")
         else:
             self.stdout.write(self.style.SUCCESS(f"✅ Imported {imported_count} new players (no updates to existing ones)"))
-
-        if new_players:
-            self.stdout.write("\n🆕 Newly Added Players:")
-            for idx, name in enumerate(sorted(new_players), start=1):
-                self.stdout.write(f" {idx}. {name}")
-        else:
-            self.stdout.write("✅ No new players were added.")

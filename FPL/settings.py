@@ -25,10 +25,11 @@ import os
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'temporary-dev-key')
 DEBUG = os.environ.get('DJANGO_DEBUG', '') == '1'
 
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['arfozan.pythonanywhere.com']
+ALLOWED_HOSTS = ['127.0.2.2', '192.168.0.50', '192.168.0.3', 'localhost', '127.0.0.1', '127.0.0.1', 'arfozan.pythonanywhere.com']
 
 # CACHES = {
 #     'default': {

@@ -58,9 +58,9 @@ class PlayerAdmin(admin.ModelAdmin):
     search_fields = ('first_name', 'last_name')
     list_display = ("first_name", "last_name", "position", "team", "weekly_wage")
     readonly_fields = (
-        'first_name',
-        'last_name',
-        'position',
+        # 'first_name',
+        # 'last_name',
+        # 'position',
         'total_base_price',
         'weekly_wage',
         'full_season_wage',         

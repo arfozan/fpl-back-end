@@ -232,3 +232,9 @@ class TeamAchievementAdmin(admin.ModelAdmin):
     search_fields = ("team__name", "league_champion", "ucl_champion")
     inlines = [TeamAchievementRankInline]
 
+from django.contrib import admin
+from .models import TeamSeasonStats
+
+@admin.register(TeamSeasonStats)
+class TeamSeasonStatsAdmin(admin.ModelAdmin):
+    list_display = ('team', 'season', 'wins', 'draws', 'losses', 'total_matches',)

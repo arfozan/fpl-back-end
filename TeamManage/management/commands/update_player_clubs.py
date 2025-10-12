@@ -37,51 +37,61 @@ class Command(BaseCommand):
             photo_name = p.get("photo", "").strip()
             club_name = team_map.get(team_id)
 
-            if not club_name or not photo_name:
+            if not club_name:
                 skipped_count += 1
                 continue
 
-            # ✅ Corrected photo URL (current official FPL player photo path)
-            photo_base = os.path.splitext(photo_name)[0]
-            photo_filename = f"{photo_base}.png"
-            photo_url = f"https://resources.premierleague.com/premierleague25/photos/players/110x140/{photo_filename}"
-
+            # ✅ FPL player photo URL (current format)
+            photo_url = None
+            if photo_name:
+                photo_base = os.path.splitext(photo_name)[0]
+                photo_filename = f"{photo_base}.png"
+                photo_url = f"https://resources.premierleague.com/premierleague25/photos/players/110x140/{photo_filename}"
 
             try:
                 player = Player.objects.get(first_name=first_name, last_name=last_name)
                 player.club_name = club_name
 
-                # ✅ Remove old photo if exists
-                if player.photo and player.photo.name:
-                    old_path = player.photo.path
-                    if os.path.exists(old_path):
-                        os.remove(old_path)
-                    player.photo.delete(save=False)
+                new_photo_saved = False
 
-                # ✅ Download and save latest photo
-                try:
-                    img_response = requests.get(photo_url, timeout=10)
-                    if img_response.status_code == 200 and img_response.content:
-                        file_name = os.path.basename(photo_name)
-                        if not file_name.lower().endswith(".png"):
-                            file_name += ".png"
+                # ✅ Attempt to download latest photo if available
+                if photo_url:
+                    try:
+                        img_response = requests.get(photo_url, timeout=10)
+                        if img_response.status_code == 200 and img_response.content:
+                            # Delete old photo first
+                            if player.photo and player.photo.name:
+                                old_path = player.photo.path
+                                player.photo.delete(save=False)
+                                if os.path.exists(old_path):
+                                    os.remove(old_path)
 
-                        # ✅ Save inside media/player_photos/
-                        save_path = os.path.join("", file_name)
-                        player.photo.save(save_path, ContentFile(img_response.content), save=False)
-                    else:
+                            file_name = os.path.basename(photo_name)
+                            if not file_name.lower().endswith(".png"):
+                                file_name += ".png"
+
+                            save_path = os.path.join("", file_name)
+                            player.photo.save(save_path, ContentFile(img_response.content), save=False)
+                            new_photo_saved = True
+                        else:
+                            photo_failed += 1
+                            print(f"⚠️ Could not download image for {player.first_name} {player.last_name} ({photo_url})")
+                    except requests.RequestException:
                         photo_failed += 1
-                        print(f"⚠️ Could not download image for {player.first_name} {player.last_name} ({photo_url})")
-                except requests.RequestException:
-                    photo_failed += 1
-                    print(f"⚠️ Request failed for {player.first_name} {player.last_name} ({photo_url})")
-                    continue
+                        print(f"⚠️ Request failed for {player.first_name} {player.last_name} ({photo_url})")
 
-                player.save(update_fields=["club_name", "photo"])
+                # ✅ Fallback to default generic image if player has no photo at all
+                if not player.photo or not player.photo.name:
+                    player.photo = "default_human.png"
+
+                # ✅ Save changes (photo only if updated)
+                if new_photo_saved:
+                    player.save(update_fields=["club_name", "photo"])
+                else:
+                    player.save(update_fields=["club_name", "photo"])
+
                 updated_count += 1
-
-                # polite delay to avoid rate limits
-                time.sleep(0.15)
+                time.sleep(0.15)  # avoid hitting API too fast
 
             except Player.DoesNotExist:
                 skipped_count += 1

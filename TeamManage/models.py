@@ -104,9 +104,17 @@ class SeasonConfig(models.Model):
 
 class Team(models.Model):
     name = models.CharField(max_length=100)
-    logo = models.ImageField(upload_to='team_logos/')
+    logo = models.ImageField(upload_to='team_logos/',
+                        blank=True,
+                        null=True,
+                        default='logo.png'
+                    )
     manager_name = models.CharField(max_length=100)
-    manager_photo = models.ImageField(upload_to='manager_photos/')
+    manager_photo = models.ImageField(upload_to='manager_photos/',
+                                    blank=True,
+                                    null=True,
+                                    default='default_human.png'
+                                )
     user_name = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
     bonus_income = models.DecimalField(max_digits=10, decimal_places=5, default=0, help_text="Total bonus income earned by the team")
 
@@ -174,7 +182,13 @@ class Player(models.Model):
 
     first_name = models.CharField(max_length=50)
     last_name = models.CharField(max_length=50)
-    photo = models.ImageField(upload_to='player_photos/')
+    photo = models.ImageField(
+        upload_to='player_photos/',
+        blank=True,
+        null=True,
+        default='default_human.png'
+    )
+
     club_name = models.CharField(max_length=100, null=True, blank=True)
     position = models.CharField(max_length=2, choices=POSITIONS)
     points = models.IntegerField(default=0) 

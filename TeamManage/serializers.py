@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid,TransferWindow, NewsPost, TeamSeasonStats, TransferRequest, PostImage, LoanExtensionRequest
+from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid,TransferWindow, NewsPost, TeamSeasonStats, TransferRequest, PostImage, LoanExtensionRequest, Round
 from decimal import Decimal
 from rest_framework.exceptions import ValidationError
 
@@ -129,14 +129,21 @@ class TransferHistorySerializer(serializers.ModelSerializer):
         ]
     def get_amount(self, obj):
         return Decimal(obj.amount or 0)
+    
+class RoundSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Round
+        fields = ["round_number", "date"]
 
 class MatchSerializer(serializers.ModelSerializer):
     home_team_name = serializers.CharField(source="home_team.name", read_only=True)
     away_team_name = serializers.CharField(source="away_team.name", read_only=True)
 
+    round = RoundSerializer(source="round", read_only=True)
+
     class Meta:
         model = Match
-        fields = ["id", "round", "home_team", "away_team", "home_score", "away_score", "home_team_name", "away_team_name",]
+        fields = ["id", "round", "home_team", "away_team", "home_score", "away_score", "home_team_name", "away_team_name"]
 
 class TeamSeasonStatsSerializer(serializers.ModelSerializer):
     win_percentage = serializers.ReadOnlyField()

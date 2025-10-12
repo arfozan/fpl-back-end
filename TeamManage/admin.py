@@ -1,6 +1,5 @@
-from django.contrib import admin, messages
-from .models import SeasonConfig, Team, Player, Match, Round, TransferHistory, WeeklyBonus, TransferWindow, Bid, TeamSeasonStats, TeamAchievementRank, TeamAchievement
-from django import forms
+from django.contrib import admin
+from .models import SeasonConfig, Team, Player, Match, Round, TransferHistory, WeeklyBonus, TransferWindow, TeamSeasonStats, TeamAchievementRank, TeamAchievement, NewsPost
 from django.core.exceptions import ValidationError
 
 @admin.register(TransferWindow)
@@ -231,3 +230,11 @@ class TeamAchievementAdmin(admin.ModelAdmin):
     list_display = ("team", "league_champion", "ucl_champion", "created_at")
     search_fields = ("team__name", "league_champion", "ucl_champion")
     inlines = [TeamAchievementRankInline]
+
+@admin.register(NewsPost)
+class NewsPostAdmin(admin.ModelAdmin):
+    list_display = ('headline', 'author', 'date_posted')
+    search_fields = ('headline', 'content', 'author__username')
+    list_filter = ('date_posted',)
+    ordering = ('-date_posted',)
+

@@ -139,7 +139,7 @@ class MatchSerializer(serializers.ModelSerializer):
     home_team_name = serializers.CharField(source="home_team.name", read_only=True)
     away_team_name = serializers.CharField(source="away_team.name", read_only=True)
 
-    round = RoundSerializer(source="round", read_only=True)
+    round = RoundSerializer(read_only=True)
 
     class Meta:
         model = Match

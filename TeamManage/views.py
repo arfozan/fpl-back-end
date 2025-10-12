@@ -229,7 +229,7 @@ def my_team_players(request):
     loaned_out_count = Player.objects.filter(
         loan_from_team=team,
         is_loan=True,
-        is_academy_player=False
+        was_academy_player=False
     ).count()
 
     # Include them in the main players count
@@ -835,10 +835,11 @@ def accept_transfer_request(tr: TransferRequest, accepted_by):
             # Snapshot academy state before moving
             player.was_academy_player = player.is_academy_player
             player.was_locked = player.is_locked
+            player.is_locked = False
             player.is_loan = True
             player.loan_from_team = from_team
             player.team = to_team
-            player.is_academy_player = True
+            player.is_academy_player = False
         else:
             player.team = to_team
             player.is_loan = False

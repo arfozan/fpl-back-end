@@ -336,11 +336,16 @@ def extend_contract(request, player_id):
     window_id = request.data.get("transfer_window_id")
     if not window_id:
         return Response({"error": "transfer_window_id required"}, status=status.HTTP_400_BAD_REQUEST)
-
     try:
         window = TransferWindow.objects.get(pk=window_id)
     except TransferWindow.DoesNotExist:
         return Response({"error": "Invalid transfer window"}, status=status.HTTP_404_NOT_FOUND)
+    
+    if player.is_loan:
+        return Response(
+            {"detail": "Player is on loan, You cant extend contract"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
     # 4️⃣ Check the 2-id rule
     if player.contract_expiry:

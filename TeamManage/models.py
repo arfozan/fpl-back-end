@@ -116,9 +116,9 @@ class Team(models.Model):
                                     default='default_human.png'
                                 )
     user_name = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
-    bonus_income = models.DecimalField(max_digits=10, decimal_places=5, default=0, help_text="Total bonus income earned by the team")
+    bonus_income = models.DecimalField(max_digits=6, decimal_places=1, default=0, help_text="Total bonus income earned by the team")
 
-    current_balance = models.DecimalField(max_digits=10, decimal_places=5, null=True, blank=True, help_text="Running balance updated weekly")
+    current_balance = models.DecimalField(max_digits=12, decimal_places=8, null=True, blank=True, help_text="Running balance updated weekly")
 
     def __str__(self):
         return self.name
@@ -148,7 +148,7 @@ class Team(models.Model):
         weekly_wage_total = self.weekly_wage_total if self.weekly_wage_total is not None else Decimal(0)
 
         forecast = current_balance - (weekly_wage_total * Decimal(remaining_weeks))
-        return forecast.quantize(Decimal("0.0001"))
+        return forecast.quantize(Decimal("0.00000001"))
     
     def update_stats(self):
         """Recalculate overall stats from all matches."""
@@ -192,7 +192,7 @@ class Player(models.Model):
     club_name = models.CharField(max_length=100, null=True, blank=True)
     position = models.CharField(max_length=2, choices=POSITIONS)
     points = models.IntegerField(default=0) 
-    bonus_earning = models.DecimalField(max_digits=10, decimal_places=1, default=0, help_text="Total bonus earned by the player")
+    bonus_earning = models.DecimalField(max_digits=4, decimal_places=1, default=0, help_text="Total bonus earned by the player")
     is_locked = models.BooleanField(default=False)
     was_locked = models.BooleanField(default=False)
     is_transfer_lock = models.BooleanField(default=False)
@@ -205,7 +205,7 @@ class Player(models.Model):
         related_name='players'
     )
 
-    base_price = models.DecimalField(max_digits=10, decimal_places=5 , default=0)
+    base_price = models.DecimalField(max_digits=3, decimal_places=1 , default=0)
     contract_renew_bonus = models.DecimalField(max_digits=4, decimal_places=1, default=0)
     contract_expiry = models.ForeignKey(
         "TransferWindow",
@@ -236,11 +236,11 @@ class Player(models.Model):
         
         factor = Decimal("6000") if self.is_academy_player else Decimal("2000")
         wage = (total ** 3) / factor
-        return wage.quantize(Decimal("0.0001"))
+        return wage.quantize(Decimal("0.00000001"))
 
     @property
     def full_season_wage(self) -> Decimal:
-        return (self.weekly_wage * Decimal("38")).quantize(Decimal("0.0001"))
+        return (self.weekly_wage * Decimal("38")).quantize(Decimal("0.00000001"))
 
 class Round(models.Model):
     season = models.ForeignKey(

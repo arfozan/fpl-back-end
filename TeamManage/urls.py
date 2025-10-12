@@ -30,7 +30,7 @@ urlpatterns = router.urls + [
     # path("season/<int:season_id>/team/<int:team_id>/stats/", views.season_stats),
     path("season/<int:season_id>/team/<int:team_id>/details/", views.season_team_details),
     path("players/", players_list, name="players-list"),
-    # path("free-agents/", views.free_agents, name="free_agents"),
+    path("free-agents/", views.free_agents, name="free_agents"),
     path("active-bids/", views.active_bids, name="active_bids"),
     path("bids/", views.create_bid, name="create_bid"),
     path('news/', NewsPostListCreateView.as_view(), name='news-list-create'),

@@ -53,31 +53,41 @@ class TeamAdmin(admin.ModelAdmin):
     search_fields = ("name", "manager_name")
     list_display = ("name", "manager_name", "current_balance", "weekly_wage_total", "forecast_end_balance")
 
+from django.contrib import admin
+from django.db.models import Q
+from .models import Player
+
 @admin.register(Player)
 class PlayerAdmin(admin.ModelAdmin):
     search_fields = ('first_name', 'last_name')
     list_display = ("first_name", "last_name", "position", "team", "weekly_wage")
     readonly_fields = (
-        # 'first_name',
-        # 'last_name',
-        # 'position',
         'total_base_price',
         'weekly_wage',
-        'full_season_wage',         
-        'loan_from_team',   
+        'full_season_wage',
+        'loan_from_team',
         'is_locked',
         'was_locked',
         'is_transfer_lock',
         'was_academy_player',
         'contract_renew_bonus',
-        # 'contract_expiry',
     )
 
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        if request.GET.get('action') == 'end_loan':
-            return qs.filter(is_loan=True)
-        return qs
+    # ✅ Use built-in autocomplete suggestions
+    autocomplete_fields = ('team',)
+
+    # ✅ Remove the old `end_loan` filtering logic
+    # (no need to override get_queryset anymore)
+
+    # Optional: improve search matching behavior
+    def get_search_results(self, request, queryset, search_term):
+        queryset, use_distinct = super().get_search_results(request, queryset, search_term)
+        # Add case-insensitive matching and combine first + last name search
+        queryset |= self.model.objects.filter(
+            Q(first_name__icontains=search_term) | Q(last_name__icontains=search_term)
+        )
+        return queryset, use_distinct
+
     
 def update_season_stats(round_obj):
     for match in round_obj.matches.all():

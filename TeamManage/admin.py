@@ -237,4 +237,4 @@ from .models import TeamSeasonStats
 
 @admin.register(TeamSeasonStats)
 class TeamSeasonStatsAdmin(admin.ModelAdmin):
-    list_display = ('team', 'season', 'wins', 'draws', 'losses', 'total_matches',)
+    list_display = ('team', 'season', 'wins', 'draws', 'losses')

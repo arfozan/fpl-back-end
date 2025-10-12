@@ -254,8 +254,8 @@ def my_team_players(request):
         "team": team_data,
         "players": players_data,
         "expiring_contracts_count": expiring_count,
-        "total_weekly_wage": str(total_weekly_wage),
-        "total_yearly_wage": str(total_yearly_wage),
+        "total_weekly_wage": float(total_weekly_wage),
+        "total_yearly_wage": float(total_yearly_wage),
         "academy_players_count": academy_players_count,
         "main_players_count": main_players_count,
     }, status=status.HTTP_200_OK)

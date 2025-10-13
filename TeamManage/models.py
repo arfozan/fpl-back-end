@@ -1,11 +1,12 @@
-from django.db import models
-from django.db import transaction
+from django.db import models, transaction
 from django.contrib.auth.models import User
 from rest_framework.exceptions import ValidationError
 from django.utils import timezone
 from decimal import Decimal
 from django.conf import settings
 from .signals import weekly_bonus_applied, player_released
+from django.db.models import Q, F
+from datetime import timedelta
 
 class TransferWindow(models.Model):
     SEASON_CHOICES = [
@@ -153,9 +154,6 @@ class Team(models.Model):
         return forecast.quantize(Decimal("0.00000001"))
     
     def update_stats(self):
-        """Recalculate overall stats from all matches."""
-        from django.db.models import Q, F
-
         matches = Match.objects.filter(Q(home_team=self) | Q(away_team=self))
 
         wins = matches.filter(
@@ -331,12 +329,6 @@ class TeamSeasonStats(models.Model):
 
     def __str__(self):
         return f"{self.team} - {self.season.season_name} ({self.wins}W/{self.draws}D/{self.losses}L)"
-
-from decimal import Decimal
-from django.core.exceptions import ValidationError
-from django.db import models
-from django.utils import timezone
-from datetime import timedelta
 
 class TransferHistory(models.Model):
     season = models.ForeignKey('SeasonConfig', on_delete=models.CASCADE)

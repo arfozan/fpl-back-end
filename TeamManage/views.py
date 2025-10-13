@@ -1,16 +1,15 @@
 from rest_framework import viewsets
-from rest_framework.permissions import AllowAny
 from .models import (Team, Player, SeasonConfig, TransferHistory,
                      Match, Bid, NewsPost, TeamSeasonStats, TransferWindow, TransferRequest, TeamAchievement, MaintenanceMode, LoanExtensionRequest)
 from .serializers import (
     TeamSummarySerializer, PlayerSerializer,
     SeasonConfigSerializer, TransferHistorySerializer,
     MatchSerializer, BidSerializer, TransferWindow, NewsPostSerializer, TeamSeasonStatsSerializer,
-    TransferWindowSerializer, TransferRequestSerializer, NewsPostCreateSerializer, ActiveLoanSerializer,
+    TransferWindowSerializer, TransferRequestSerializer, ActiveLoanSerializer,
     LoanExtensionRequestSerializer, ActiveLoanWithExtensionSerializer
 )
 from django.db import models
-from django.db.models import Q, Max, Sum
+from django.db.models import Q, Max
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response

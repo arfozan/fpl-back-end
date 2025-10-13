@@ -4,7 +4,6 @@ from django.core.exceptions import ValidationError
 from django.shortcuts import render, redirect
 from decimal import Decimal
 from django import forms
-from django.db.models import Q
 
 @admin.register(TransferWindow)
 class TransferWindowAdmin(admin.ModelAdmin):

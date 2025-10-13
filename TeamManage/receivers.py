@@ -9,7 +9,7 @@ from .signals import (
     weekly_bonus_applied,
 )
 from .news.helpers import create_news_post
-from TeamManage.models import NewsPost, Team
+from TeamManage.models import Team
 from django.contrib.auth import get_user_model
 User = get_user_model()
 

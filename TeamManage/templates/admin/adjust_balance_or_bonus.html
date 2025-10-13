@@ -1,16 +1,20 @@
 {% extends "admin/base_site.html" %}
+{% load i18n static %}
+
 {% block content %}
   <h1>{{ title }}</h1>
 
   <form method="post">{% csrf_token %}
     {{ form.as_p }}
-    <p><strong>Selected Teams:</strong></p>
-    <ul>
-      {% for t in teams %}
-        <li>{{ t.name }} — Current Balance: {{ t.current_balance }} | Bonus: {{ t.bonus_income }}</li>
-      {% endfor %}
-    </ul>
-    <input type="hidden" name="apply" value="1" />
-    <button type="submit" class="default">Apply Adjustment</button>
+    {% for team in teams %}
+      <input type="hidden" name="_selected_action" value="{{ team.pk }}">
+    {% endfor %}
+    <input type="hidden" name="action" value="adjust_balance_or_bonus">
+    <input type="hidden" name="apply" value="1">
+
+    <div>
+      <input type="submit" value="Apply" class="default">
+      <a href="..">Cancel</a>
+    </div>
   </form>
 {% endblock %}

@@ -6,6 +6,7 @@ from django.utils import timezone
 from decimal import Decimal
 from django.conf import settings
 from .signals import weekly_bonus_applied, player_released
+from django.db.models import Q, F, Sum, Subquery, OuterRef, Value, Case, When, IntegerField
 
 class TransferWindow(models.Model):
     SEASON_CHOICES = [
@@ -136,21 +137,67 @@ class Team(models.Model):
         return sum(player.weekly_wage for player in self.players.all())
 
     @property
-    def forecast_end_balance(self)-> Decimal:
+    def forecast_end_balance(self) -> Decimal:
         season = SeasonConfig.get_active_season()
         if not season:
-            # No active season info; just return current balance
             return self.current_balance or Decimal(0)
 
-        remaining_weeks = 38 - season.current_gameweek
-        if remaining_weeks < 0:
-            remaining_weeks = 0
+        total_weeks = 38
+        current_gw = season.current_gameweek
+        remaining_weeks = max(total_weeks - current_gw, 0)
 
-        current_balance = self.current_balance if self.current_balance is not None else Decimal(0)
-        weekly_wage_total = self.weekly_wage_total if self.weekly_wage_total is not None else Decimal(0)
+        current_balance = self.current_balance or Decimal(0)
 
-        forecast = current_balance - (weekly_wage_total * Decimal(remaining_weeks))
+        # Subquery to get latest loan_gameweek for each player
+        loan_gameweek_subquery = Subquery(
+            TransferHistory.objects
+            .filter(player=OuterRef("pk"))
+            .order_by("-id")
+            .values("loan_gameweek")[:1]
+        )
+
+        # Annotate players with loan_gameweek
+        players = (
+            Player.objects
+            .filter(Q(team=self) | Q(loan_from_team=self))
+            .annotate(loan_gameweek=loan_gameweek_subquery)
+        )
+
+        # Compute how many weeks of wages this team will pay for each player
+        wage_sum = players.aggregate(
+            total=Sum(
+                Case(
+                    # Case 1: Regular player (not on loan)
+                    When(is_loan=False, team=self, then=F("weekly_wage") * Decimal(remaining_weeks)),
+
+                    # Case 2: Loaned-in player (this team currently has them)
+                    When(is_loan=True, team=self, then=F("weekly_wage") * F("loan_gameweek")),
+
+                    # Case 3: Loaned-out player (this team owns them)
+                    When(
+                        is_loan=True,
+                        loan_from_team=self,
+                        then=F("weekly_wage") * Case(
+                            When(
+                                loan_gameweek__isnull=False,
+                                then=Value(total_weeks) - (Value(current_gw) + F("loan_gameweek"))
+                            ),
+                            default=Value(0),
+                            output_field=IntegerField(),
+                        ),
+                    ),
+
+                    # Default case: nothing
+                    default=Value(0),
+                    output_field=Decimal,
+                )
+            )
+        )["total"] or Decimal(0)
+
+        # Calculate forecast
+        forecast = current_balance - wage_sum
         return forecast.quantize(Decimal("0.00000001"))
+
     
     def update_stats(self):
         """Recalculate overall stats from all matches."""

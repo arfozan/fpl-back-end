@@ -65,6 +65,7 @@ class BalanceAdjustmentForm(forms.Form):
 class TeamAdmin(admin.ModelAdmin):
     list_display = ("name", "bonus_income", "current_balance")
     actions = ["adjust_balance_or_bonus"]
+    readonly_fields = ["current_balance", "logo", "manager_name", "user_name", "bonus_income", "manager_photo"]
 
     def adjust_balance_or_bonus(self, request, queryset):
         """Admin action to adjust team bonus or balance."""

@@ -1,6 +1,10 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from .models import SeasonConfig, Team, Player, Match, Round, TransferHistory, WeeklyBonus, TransferWindow, TeamSeasonStats, TeamAchievementRank, TeamAchievement, NewsPost
 from django.core.exceptions import ValidationError
+from django.shortcuts import render, redirect
+from decimal import Decimal
+from django import forms
+from django.db.models import Q
 
 @admin.register(TransferWindow)
 class TransferWindowAdmin(admin.ModelAdmin):
@@ -47,45 +51,65 @@ class SeasonConfigAdmin(admin.ModelAdmin):
 
             self.message_user(request, f"✅ Created {len(created_rounds)} rounds with {len(matches_to_create)} matches.")
 
+class BalanceAdjustmentForm(forms.Form):
+    _selected_action = forms.CharField(widget=forms.MultipleHiddenInput)
+    ADJUST_TYPE_CHOICES = [
+        ('bonus', 'Bonus Income (also updates current balance)'),
+        ('balance', 'Current Balance Only'),
+    ]
+    adjust_type = forms.ChoiceField(choices=ADJUST_TYPE_CHOICES, label="Adjustment Type")
+    amount = forms.DecimalField(max_digits=12, decimal_places=2, label="Amount (+/-)")
+    reason = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 2}), help_text="Optional note")
+
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    search_fields = ("name", "manager_name")
-    list_display = ("name", "manager_name", "current_balance", "weekly_wage_total", "forecast_end_balance")
+    list_display = ("name", "bonus_income", "current_balance")
+    actions = ["adjust_balance_or_bonus"]
 
-from django.contrib import admin
-from django.db.models import Q
-from .models import Player
+    def adjust_balance_or_bonus(self, request, queryset):
+        """Admin action to adjust team bonus or balance."""
+        if "apply" in request.POST:
+            form = BalanceAdjustmentForm(request.POST)
 
-@admin.register(Player)
-class PlayerAdmin(admin.ModelAdmin):
-    search_fields = ('first_name', 'last_name')
-    list_display = ("first_name", "last_name", "position", "team", "weekly_wage")
-    readonly_fields = (
-        'total_base_price',
-        'weekly_wage',
-        'full_season_wage',
-        'loan_from_team',
-        'is_locked',
-        'was_locked',
-        'is_transfer_lock',
-        'was_academy_player',
-        'contract_renew_bonus',
-    )
+            if form.is_valid():
+                adjust_type = form.cleaned_data["adjust_type"]
+                amount = form.cleaned_data["amount"]
+                reason = form.cleaned_data.get("reason", "")
+                count = 0
 
-    # ✅ Use built-in autocomplete suggestions
-    autocomplete_fields = ('team',)
+                for team in queryset:
+                    # Convert None to 0 for safety
+                    team.current_balance = team.current_balance or Decimal("0")
+                    team.bonus_income = team.bonus_income or Decimal("0")
 
-    # ✅ Remove the old `end_loan` filtering logic
-    # (no need to override get_queryset anymore)
+                    if adjust_type == "bonus":
+                        team.bonus_income += amount
+                        team.current_balance += amount
+                    elif adjust_type == "balance":
+                        team.current_balance += amount
 
-    # Optional: improve search matching behavior
-    def get_search_results(self, request, queryset, search_term):
-        queryset, use_distinct = super().get_search_results(request, queryset, search_term)
-        # Add case-insensitive matching and combine first + last name search
-        queryset |= self.model.objects.filter(
-            Q(first_name__icontains=search_term) | Q(last_name__icontains=search_term)
+                    team.save()
+                    count += 1
+
+                self.message_user(
+                    request,
+                    f"Successfully adjusted {count} team(s) ({adjust_type} by {amount}).",
+                    messages.SUCCESS,
+                )
+                return redirect(request.get_full_path())
+
+        else:
+            form = BalanceAdjustmentForm(
+                initial={"_selected_action": request.POST.getlist(admin.ACTION_CHECKBOX_NAME)}
+            )
+
+        return render(
+            request,
+            "admin/adjust_balance_or_bonus.html",
+            {"teams": queryset, "form": form, "title": "Adjust Bonus or Balance"},
         )
-        return queryset, use_distinct
+
+    adjust_balance_or_bonus.short_description = "💰 Adjust bonus income or current balance"
 
     
 def update_season_stats(round_obj):
@@ -237,4 +261,5 @@ class NewsPostAdmin(admin.ModelAdmin):
     search_fields = ('headline', 'content', 'author__username')
     list_filter = ('date_posted',)
     ordering = ('-date_posted',)
+
 

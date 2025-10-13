@@ -1,0 +1,16 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+  <h1>{{ title }}</h1>
+
+  <form method="post">{% csrf_token %}
+    {{ form.as_p }}
+    <p><strong>Selected Teams:</strong></p>
+    <ul>
+      {% for t in teams %}
+        <li>{{ t.name }} — Current Balance: {{ t.current_balance }} | Bonus: {{ t.bonus_income }}</li>
+      {% endfor %}
+    </ul>
+    <input type="hidden" name="apply" value="1" />
+    <button type="submit" class="default">Apply Adjustment</button>
+  </form>
+{% endblock %}

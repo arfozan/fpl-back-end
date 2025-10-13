@@ -100,7 +100,7 @@ class TeamAdmin(admin.ModelAdmin):
 
         else:
             form = BalanceAdjustmentForm(
-                initial={"_selected_action": request.POST.getlist(admin.ACTION_CHECKBOX_NAME)}
+                initial={"_selected_action": request.POST.getlist("_selected_action")}
             )
 
         return render(

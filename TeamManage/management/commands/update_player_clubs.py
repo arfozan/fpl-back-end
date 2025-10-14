@@ -20,7 +20,7 @@ class Command(BaseCommand):
         except requests.RequestException as e:
             self.stderr.write(f"❌ Failed to fetch data from FPL API: {e}")
             return
-
+# this is the comment to test my build
         data = response.json()
         players_data = data.get("elements", [])
         teams_data = data.get("teams", [])

@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from django.conf import settings
 from django.conf.urls.static import static
@@ -44,5 +44,6 @@ urlpatterns = router.urls + [
     path("players/available/", views.available_players, name="available-players"),
     path("maintenance/", maintenance_status, name="maintenance_status"),
     path("my-loaned-players/", my_loan_players, name="my-loan-players"),
+    path('ckeditor5/', include('django_ckeditor_5.urls'))
 
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

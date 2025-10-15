@@ -139,6 +139,14 @@ def update_season_stats(round_obj):
         home_stats.save()
         away_stats.save()
 
+@admin.register(Player)
+class PlayerAdmin(admin.ModelAdmin):
+    list_display = ('first_name', 'last_name', 'team', 'base_price')
+    fields = ('team', 'base_price')
+    search_fields = ('first_name', 'last_name', 'team__name')
+    list_filter = ('team',)
+
+
 class MatchInline(admin.TabularInline):
     model = Match
     extra = 0  # no extra empty rows, since we already create 5

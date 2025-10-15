@@ -12,7 +12,6 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 from datetime import timedelta
-import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -117,8 +116,6 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
-
-DATABASES["default"] = dj_database_url.parse("postgresql://fpl_database_8102_user:uKbeuvutxRLJWLIvYbBPdERbSdF2p8an@dpg-d3nkl7fdiees73dpv520-a.singapore-postgres.render.com/fpl_database_8102")
 
 
 # Password validation

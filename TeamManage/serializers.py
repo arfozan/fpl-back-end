@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid,TransferWindow, NewsPost, TeamSeasonStats, TransferRequest, PostImage, LoanExtensionRequest, Round
+from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid,TransferWindow, NewsPost, TeamSeasonStats, TransferRequest, LoanExtensionRequest, Round
 from decimal import Decimal
 from rest_framework.exceptions import ValidationError
 
@@ -174,22 +174,16 @@ class BidSerializer(serializers.ModelSerializer):
         return None
     def get_amount(self, obj):
         return Decimal(obj.amount or 0)
-    
-class PostImageSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = PostImage
-        fields = ['id', 'image', 'caption']
 
 class NewsPostSerializer(serializers.ModelSerializer):
     author = serializers.SerializerMethodField()
-    images = PostImageSerializer(many=True, read_only=True)
     team_name = serializers.SerializerMethodField()
     manager_name = serializers.SerializerMethodField()
 
     class Meta:
         model = NewsPost
         fields = [
-            'id', 'headline', 'content', 'images',
+            'id', 'headline', 'content',
             'title_image', 'date_posted', 'author', 'team_name', 'manager_name'
         ]
 

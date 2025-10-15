@@ -515,11 +515,6 @@ class NewsPost(models.Model):
 
     def __str__(self):
         return f"{self.headline} by {self.author.username}"
-    
-class PostImage(models.Model):  # for multiple images
-    post = models.ForeignKey(NewsPost, related_name='images', on_delete=models.CASCADE)
-    image = models.ImageField(upload_to='posts/')
-    caption = models.CharField(max_length=255, blank=True)
 
 # Personal Deal Model
 class TransferRequest(models.Model):

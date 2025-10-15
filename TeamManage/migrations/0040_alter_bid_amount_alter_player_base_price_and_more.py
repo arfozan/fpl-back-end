@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='bid',
             name='amount',
-            field=models.DateField(),
+            field=models.DecimalField(decimal_places=5, default=0, max_digits=10),
         ),
         migrations.AlterField(
             model_name='player',

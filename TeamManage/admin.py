@@ -64,7 +64,7 @@ class BalanceAdjustmentForm(forms.Form):
 class TeamAdmin(admin.ModelAdmin):
     list_display = ("name", "bonus_income", "current_balance")
     actions = ["adjust_balance_or_bonus"]
-    readonly_fields = ["current_balance", "logo", "manager_name", "user_name", "bonus_income", "manager_photo"]
+    # readonly_fields = ["current_balance", "logo", "manager_name", "bonus_income", "manager_photo"]
 
     def adjust_balance_or_bonus(self, request, queryset):
         """Admin action to adjust team bonus or balance."""
@@ -142,7 +142,7 @@ def update_season_stats(round_obj):
 @admin.register(Player)
 class PlayerAdmin(admin.ModelAdmin):
     list_display = ('first_name', 'last_name', 'team', 'base_price')
-    fields = ('team', 'base_price')
+    fields = ('first_name', 'last_name', 'club_name', 'position', 'photo', 'contract_expiry', 'team', 'base_price')
     search_fields = ('first_name', 'last_name', 'team__name')
     list_filter = ('team',)
 

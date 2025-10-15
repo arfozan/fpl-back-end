@@ -54,9 +54,11 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'TeamManage',
     'corsheaders',
+    'ckeditor',
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework.authtoken'
+
 ]
 
 REST_FRAMEWORK = {

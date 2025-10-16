@@ -45,27 +45,25 @@ class Command(BaseCommand):
             position_code = FPL_POSITION_MAP.get(p.get("element_type"))
             team_id = p.get("team")
             club_name = team_map.get(team_id)
+            photo_code = p.get("photo", "").strip()
 
             if not position_code:
                 continue
 
-            # Prepare photo filename
-            photo_code = p.get("photo", "")
-            filename_png = f"{first_name}_{last_name}.png".replace(" ", "_")
-            filename_jpg = f"{first_name}_{last_name}.jpg".replace(" ", "_")
-
-            # Function to get player photo
+            # Function to fetch the player's official photo
             def fetch_photo():
-                # Try PNG
+                # Try PNG version first
                 url_png = f"https://resources.premierleague.com/premierleague25/photos/players/110x140/{photo_code.replace('.jpg', '.png')}"
                 r = requests.get(url_png)
                 if r.status_code == 200:
-                    return filename_png, r
+                    return photo_code.replace('.jpg', '.png'), r
+
                 # Fallback to JPG
                 url_jpg = f"https://resources.premierleague.com/premierleague25/photos/players/110x140/{photo_code}"
                 r = requests.get(url_jpg)
                 if r.status_code == 200:
-                    return filename_jpg, r
+                    return photo_code, r
+
                 return None, None
 
             try:
@@ -75,17 +73,36 @@ class Command(BaseCommand):
                     player.position = position_code
                     player.club_name = club_name
 
-                    # Update photo only if missing or changed
                     filename, photo_response = fetch_photo()
-                    if photo_response and (
-                        not player.photo
-                        or not player.photo.name
-                        or filename != player.photo.name.split('/')[-1]
-                    ):
-                        player.photo.save(filename, ContentFile(photo_response.content), save=False)
+                    if photo_response:
+                        # Only update if missing or different filename
+                        if not player.photo or filename != player.photo.name.split('/')[-1]:
+                            player.photo.save(filename, ContentFile(photo_response.content), save=False)
+                    elif not player.photo:
+                        player.photo.name = "human.png"  # default placeholder
 
                     player.save()
                     updated_count += 1
+
+            except Player.DoesNotExist:
+                new_players.append(f"{first_name} {last_name}")
+
+                player = Player(
+                    first_name=first_name,
+                    last_name=last_name,
+                    base_price=base_price,
+                    position=position_code,
+                    club_name=club_name,
+                )
+
+                filename, photo_response = fetch_photo()
+                if photo_response:
+                    player.photo.save(filename, ContentFile(photo_response.content), save=True)
+                else:
+                    player.photo.name = "human.png"
+                    player.save()
+
+                imported_count += 1
 
             except Player.DoesNotExist:
                 new_players.append(f"{first_name} {last_name}")

@@ -187,7 +187,7 @@ class Player(models.Model):
         upload_to='player_photos/',
         blank=True,
         null=True,
-        default='default_human.png'
+        default='human.png'
     )
 
     club_name = models.CharField(max_length=100, null=True, blank=True)

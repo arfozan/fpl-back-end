@@ -103,7 +103,10 @@ class Command(BaseCommand):
                 if photo_response:
                     player.photo.save(filename, ContentFile(photo_response.content), save=True)
                 else:
+                    # Assign default photo if not found
+                    player.photo.name = "human.png"  # path relative to MEDIA_ROOT
                     player.save()
+
 
                 imported_count += 1
                 new_players.append(f"{first_name} {last_name}")

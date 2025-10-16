@@ -117,7 +117,7 @@ class Team(models.Model):
         upload_to='manager_photos/',
         blank=True,
         null=True,
-        default='default_human.png'
+        default='human.png'
     )
     user_name = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
     bonus_income = models.DecimalField(max_digits=6, decimal_places=1, default=0, help_text="Total bonus income earned by the team")

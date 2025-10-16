@@ -7,7 +7,7 @@ from django.conf import settings
 from .signals import weekly_bonus_applied, player_released
 from django.db.models import Q, F
 from datetime import timedelta
-from ckeditor.fields import RichTextField
+from django_ckeditor_5.fields import CKEditor5Field
 
 class TransferWindow(models.Model):
     SEASON_CHOICES = [
@@ -511,7 +511,7 @@ class NewsPost(models.Model):
     author = models.ForeignKey(User, on_delete=models.CASCADE, related_name='news_posts')
     headline = models.CharField(max_length=255)
     title_image = models.ImageField(upload_to='news_images/', blank=True, null=True)  # 👈 New field
-    content = RichTextField()
+    content = CKEditor5Field(config_name='extends')
     date_posted = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

@@ -142,7 +142,7 @@ def update_season_stats(round_obj):
 @admin.register(Player)
 class PlayerAdmin(admin.ModelAdmin):
     list_display = ('first_name', 'last_name', 'team', 'base_price')
-    fields = ('first_name', 'last_name', 'club_name', 'position', 'photo', 'contract_expiry', 'team', 'base_price')
+    fields = ('first_name', 'last_name', 'club_name', 'position', 'photo', 'contract_expiry', 'team', 'base_price', 'is_academy_player')
     search_fields = ('first_name', 'last_name', 'team__name')
     list_filter = ('team',)
 

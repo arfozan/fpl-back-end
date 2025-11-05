@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.shortcuts import render, redirect
 from decimal import Decimal
 from django import forms
+from TeamManage.utils import recalculate_season_stats
 
 @admin.register(TransferWindow)
 class TransferWindowAdmin(admin.ModelAdmin):
@@ -171,7 +172,7 @@ class RoundAdmin(admin.ModelAdmin):
                     raise ValidationError("All matches must have scores before ending the round.")
 
             # if passes, update stats
-            update_season_stats(obj)
+            recalculate_season_stats(obj.season)
 
 
 @admin.register(Match)

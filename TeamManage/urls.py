@@ -6,7 +6,7 @@ from .views import (
     SeasonConfigViewSet, ChangePasswordView, update_team_images, get_all_teams_summary, team_players, player_details, PlayerTransferHistoryAPIView,
     TeamTransferHistoryAPIView, players_list, current_status, NewsPostDetailView, NewsPostListCreateView, my_team_players,
     list_transfer_windows, extend_contract, TransferRequestViewSet, get_my_team, release_player, maintenance_status,
-    my_loan_players, LoanExtensionRequestViewSet,
+    my_loan_players, LoanExtensionRequestViewSet, season_bonus_view, TeamListAPIView, SeasonViewSet, league_table
 )
 from . import views
 
@@ -14,6 +14,7 @@ router = DefaultRouter()
 router.register(r'seasons', SeasonConfigViewSet)
 router.register(r"transfer-requests", TransferRequestViewSet, basename="transferrequest")
 router.register(r'loan-extension-requests', LoanExtensionRequestViewSet, basename='loan-extension-requests')
+router.register(r"seasons", SeasonViewSet, basename="season")
 
 urlpatterns = router.urls + [
     path('change-password/', ChangePasswordView.as_view(), name='change-password'),
@@ -45,5 +46,9 @@ urlpatterns = router.urls + [
     path("maintenance/", maintenance_status, name="maintenance_status"),
     path("my-loaned-players/", my_loan_players, name="my-loan-players"),
     path("ckeditor5/", include('django_ckeditor_5.urls')),
+    path("bonus/season/<int:season_id>/", season_bonus_view, name="season-bonus"),
+    path("teams/", TeamListAPIView.as_view(), name="team-list"),
+    path("league-table/", league_table, name="league-table"),
+
 
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

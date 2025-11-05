@@ -1,7 +1,8 @@
 from rest_framework import serializers
-from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid,TransferWindow, NewsPost, TeamSeasonStats, TransferRequest, LoanExtensionRequest, Round
+from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid,TransferWindow, NewsPost, TeamSeasonStats, TransferRequest, LoanExtensionRequest, Round, WeeklyBonus
 from decimal import Decimal
 from rest_framework.exceptions import ValidationError
+from django.db.models import Q
 
 class PlayerSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
@@ -19,7 +20,7 @@ class PlayerSerializer(serializers.ModelSerializer):
         model = Player
         fields = [
             'id', 'first_name', 'last_name', 'full_name', 'photo',
-            'club_name', 'position', 'team_name', 'base_price', 'points',
+            'club_name', 'position', 'team_name', 'base_price', 'points', 'bonus_earning',
             'contract_renew_bonus', 'contract_expiry', 'is_academy_player',
             'weekly_wage', 'full_season_wage', 'transfer_history', 'current_bid', 'min_bid'
         ]
@@ -79,7 +80,7 @@ class TeamSummarySerializer(serializers.ModelSerializer):
     forecast_end_balance = serializers.SerializerMethodField()
     class Meta:
         model = Team
-        fields = ['id', 'name', 'logo', 'manager_name', 'current_balance', 'forecast_end_balance']
+        fields = ['id', 'name', 'logo', 'manager_name', 'current_balance', 'forecast_end_balance', 'bonus_income',]
 
     def get_logo(self, obj):
         request = self.context.get('request')
@@ -365,3 +366,80 @@ class ActiveLoanWithExtensionSerializer(serializers.ModelSerializer):
     def get_requested_gameweek(self, obj):
         ext = obj.loan_extensions.filter(is_approved__isnull=True).first()
         return ext.new_loan_gameweek if ext else None
+
+class PlayerMiniSerializer(serializers.ModelSerializer):
+    team_name = serializers.CharField(source="team.name", read_only=True)
+    logo = serializers.ImageField(source="team.logo", read_only=True)
+
+    class Meta:
+        model = Player
+        fields = ["id", "first_name", "last_name", "position", "team_name", "logo"]
+
+class TeamMiniSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Team
+        fields = ["id", "name", "logo", "manager_name", "manager_photo"]
+
+class WeeklyBonusSerializer(serializers.ModelSerializer):
+    highest_point_teams = serializers.SerializerMethodField()
+    highest_point_players = serializers.SerializerMethodField()
+    highest_gk_players = serializers.SerializerMethodField()
+    highest_df_players = serializers.SerializerMethodField()
+    highest_mf_players = serializers.SerializerMethodField()
+    highest_fw_players = serializers.SerializerMethodField()
+    special_bonus_players = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WeeklyBonus
+        fields = [
+            "id", "season", "gameweek",
+            "highest_point_teams",
+            "highest_point_players",
+            "highest_gk_players",
+            "highest_df_players",
+            "highest_mf_players",
+            "highest_fw_players",
+            "special_bonus_players",
+            "created_at",
+        ]
+
+    def get_highest_point_teams(self, obj):
+        qs = obj.highest_point_teams.all()
+        return TeamMiniSerializer(qs, many=True).data if qs else []
+
+    def _filter_players(self, qs):
+        team_id = self.context.get("team_id")
+        if team_id:
+            qs = qs.filter(team_id=team_id)  # ONLY team players
+        result = []
+        for player in qs:
+            serialized = PlayerMiniSerializer(player).data
+            if not player.team and not team_id:  # Only show free agents when no team filter
+                serialized["team_name"] = "Free Agent"
+            result.append(serialized)
+        return result
+
+
+    def get_highest_point_players(self, obj):
+        return self._filter_players(obj.highest_point_players.all())
+
+    def get_highest_gk_players(self, obj):
+        return self._filter_players(obj.highest_gk_players.all())
+
+    def get_highest_df_players(self, obj):
+        return self._filter_players(obj.highest_df_players.all())
+
+    def get_highest_mf_players(self, obj):
+        return self._filter_players(obj.highest_mf_players.all())
+
+    def get_highest_fw_players(self, obj):
+        return self._filter_players(obj.highest_fw_players.all())
+
+    def get_special_bonus_players(self, obj):
+        return self._filter_players(obj.special_bonus_players.all())
+
+
+class SeasonMiniSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SeasonConfig
+        fields = ["id", "season_name", "current_gameweek"]

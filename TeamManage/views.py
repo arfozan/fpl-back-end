@@ -1,15 +1,17 @@
 from rest_framework import viewsets
 from .models import (Team, Player, SeasonConfig, TransferHistory,
-                     Match, Bid, NewsPost, TeamSeasonStats, TransferWindow, TransferRequest, TeamAchievement, MaintenanceMode, LoanExtensionRequest)
+                     Match, Bid, NewsPost, TeamSeasonStats, TransferWindow, TransferRequest, 
+                     TeamAchievement, MaintenanceMode, LoanExtensionRequest, WeeklyBonus, TeamSeasonRanks)
 from .serializers import (
     TeamSummarySerializer, PlayerSerializer,
     SeasonConfigSerializer, TransferHistorySerializer,
     MatchSerializer, BidSerializer, TransferWindow, NewsPostSerializer, TeamSeasonStatsSerializer,
     TransferWindowSerializer, TransferRequestSerializer, ActiveLoanSerializer,
-    LoanExtensionRequestSerializer, ActiveLoanWithExtensionSerializer
+    LoanExtensionRequestSerializer, ActiveLoanWithExtensionSerializer, WeeklyBonusSerializer,
+    TeamMiniSerializer, SeasonMiniSerializer
 )
 from django.db import models
-from django.db.models import Q, Max
+from django.db.models import Q, Max, Prefetch
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -25,6 +27,8 @@ from .signals import contract_extended, player_transferred
 from django.db import transaction
 from django.db.models import Count
 from rest_framework.pagination import PageNumberPagination
+from .models import WeeklyBonus
+from .utils import get_team_bonus_summary
 
 class NewsPagination(PageNumberPagination):
     page_size = 10
@@ -432,11 +436,14 @@ def season_team_details(request, season_id, team_id):
 
     matches = MatchSerializer(qs, many=True).data
 
-    try:
-        stats = TeamSeasonStats.objects.get(season_id=season_id, team_id=team_id)
-        stats_data = TeamSeasonStatsSerializer(stats).data
-    except TeamSeasonStats.DoesNotExist:
-        stats_data = None
+    # 🔧 Ensure TeamSeasonStats exists for this team & season
+    stats, _ = TeamSeasonStats.objects.get_or_create(
+        season_id=season_id,
+        team_id=team_id,
+        defaults={"wins": 0, "draws": 0, "losses": 0},
+    )
+
+    stats_data = TeamSeasonStatsSerializer(stats).data
 
     return Response({
         "season_id": season_id,
@@ -1090,4 +1097,91 @@ class LoanExtensionRequestViewSet(viewsets.ModelViewSet):
         loan_request.delete()
         return Response({"status": "cancelled"}, status=status.HTTP_200_OK)
 
+@api_view(["GET"])
+def season_bonus_view(request, season_id):
+    team_id = request.query_params.get("team")
+    bonuses = WeeklyBonus.objects.filter(season_id=season_id).order_by("gameweek")
 
+    if team_id:
+        team_id_int = int(team_id)
+        # filter WeeklyBonus to only include relevant teams or players
+        bonuses = bonuses.filter(
+            Q(highest_point_teams__id=team_id_int) |
+            Q(highest_point_players__team__id=team_id_int) |
+            Q(highest_gk_players__team__id=team_id_int) |
+            Q(highest_df_players__team__id=team_id_int) |
+            Q(highest_mf_players__team__id=team_id_int) |
+            Q(highest_fw_players__team__id=team_id_int) |
+            Q(special_bonus_players__team__id=team_id_int)
+        ).distinct()
+
+        # Use Prefetch to filter M2M properly for the serializer
+        bonuses = bonuses.prefetch_related(
+            Prefetch('highest_point_teams', queryset=Team.objects.filter(id=team_id_int)),
+            Prefetch('highest_point_players', queryset=Player.objects.filter(Q(team_id=team_id_int) | Q(team__isnull=True))),
+            Prefetch('highest_gk_players', queryset=Player.objects.filter(Q(team_id=team_id_int) | Q(team__isnull=True))),
+            Prefetch('highest_df_players', queryset=Player.objects.filter(Q(team_id=team_id_int) | Q(team__isnull=True))),
+            Prefetch('highest_mf_players', queryset=Player.objects.filter(Q(team_id=team_id_int) | Q(team__isnull=True))),
+            Prefetch('highest_fw_players', queryset=Player.objects.filter(Q(team_id=team_id_int) | Q(team__isnull=True))),
+            Prefetch('special_bonus_players', queryset=Player.objects.filter(Q(team_id=team_id_int) | Q(team__isnull=True))),
+        )
+
+    serializer = WeeklyBonusSerializer(bonuses, many=True, context={"team_id": team_id})
+    total_bonus = get_team_bonus_summary(season_id, team_id)
+
+    return Response({
+        "season_id": season_id,
+        "team_id": team_id,
+        "total_bonus": total_bonus,
+        "weekly_details": serializer.data,
+    })
+
+class TeamListAPIView(generics.ListAPIView):
+    queryset = Team.objects.all().order_by('id')
+    serializer_class = TeamMiniSerializer
+
+class SeasonViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = SeasonConfig.objects.all().order_by("-id")
+    serializer_class = SeasonMiniSerializer
+
+@api_view(["GET"])
+def league_table(request):
+    season_id = request.query_params.get("season_id")
+    if not season_id:
+        return Response({"error": "season_id is required"}, status=400)
+
+    try:
+        season = SeasonConfig.objects.get(id=season_id)
+    except SeasonConfig.DoesNotExist:
+        return Response({"error": "Invalid season_id"}, status=404)
+
+    stats = TeamSeasonRanks.objects.filter(season=season)
+
+    # Sort: Points ↓, Goal Diff ↓, Goals For ↓
+    sorted_stats = sorted(
+        stats,
+        key=lambda s: (s.points, s.goals_for),
+        reverse=True
+    )
+
+    data = [
+        {
+            "rank": i + 1,
+            "id": s.team.id,
+            "team": s.team.name,
+            "logo": s.team.logo.url if s.team.logo else None,
+            "played": s.total_matches,
+            "wins": s.wins,
+            "draws": s.draws,
+            "losses": s.losses,
+            "goals_for": s.goals_for,
+            "goals_against": s.goals_against,
+            "points": s.points,
+        }
+        for i, s in enumerate(sorted_stats)
+    ]
+
+    return Response({
+        "season": season.season_name,
+        "table": data
+    })

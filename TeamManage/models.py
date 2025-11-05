@@ -627,3 +627,27 @@ class LoanExtensionRequest(models.Model):
 
     def __str__(self):
         return f"Loan Extension Request for {self.transfer.player} (GW {self.new_loan_gameweek})"
+
+class TeamSeasonRanks(models.Model):
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="season_ranks")
+    season = models.ForeignKey("SeasonConfig", on_delete=models.CASCADE, related_name="team_ranks")
+
+    wins = models.PositiveIntegerField(default=0)
+    losses = models.PositiveIntegerField(default=0)
+    draws = models.PositiveIntegerField(default=0)
+    goals_for = models.PositiveIntegerField(default=0)
+    goals_against = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = ("team", "season")
+
+    @property
+    def total_matches(self):
+        return self.wins + self.draws + self.losses
+
+    @property
+    def points(self):
+        return (self.wins * 3) + (self.draws * 1)
+
+    def __str__(self):
+        return f"{self.team} - {self.season.season_name} ({self.wins}W/{self.draws}D/{self.losses}L)"

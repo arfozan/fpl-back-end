@@ -1,14 +1,15 @@
 from rest_framework import viewsets
 from .models import (Team, Player, SeasonConfig, TransferHistory,
-                     Match, Bid, NewsPost, TeamSeasonStats, TransferWindow, TransferRequest, 
-                     TeamAchievement, MaintenanceMode, LoanExtensionRequest, WeeklyBonus, TeamSeasonRanks)
+                     Match, Bid, NewsPost, TransferWindow, TransferRequest, 
+                     TeamAchievement, MaintenanceMode, LoanExtensionRequest, WeeklyBonus,
+                     TeamSeasonRanks, Story, MatchPrediction, Round)
 from .serializers import (
     TeamSummarySerializer, PlayerSerializer,
     SeasonConfigSerializer, TransferHistorySerializer,
     MatchSerializer, BidSerializer, TransferWindow, NewsPostSerializer, TeamSeasonStatsSerializer,
     TransferWindowSerializer, TransferRequestSerializer, ActiveLoanSerializer,
     LoanExtensionRequestSerializer, ActiveLoanWithExtensionSerializer, WeeklyBonusSerializer,
-    TeamMiniSerializer, SeasonMiniSerializer
+    TeamMiniSerializer, SeasonMiniSerializer, StorySerializer, TeamPredictionSerializer, SubmitPredictionSerializer
 )
 from django.db import models
 from django.db.models import Q, Max, Prefetch
@@ -40,6 +41,73 @@ def get_all_teams_summary(request):
     return Response(serializer.data)
 
 @api_view(['GET'])
+def team_overview(request, team_id):
+    try:
+        team = Team.objects.get(pk=team_id)
+    except Team.DoesNotExist:
+        return Response({"error": "Team not found"}, status=404)
+    
+    active_season = SeasonConfig.get_active_season()
+    current_gameweek = active_season.current_gameweek if active_season else 0
+
+    players_qs = Player.objects.filter(team=team)
+    total_weekly_wage = sum((p.weekly_wage for p in players_qs), Decimal("0"))
+    total_yearly_wage = Decimal(total_weekly_wage * 38)
+    current_wage_cost = total_weekly_wage * Decimal(current_gameweek)
+
+    academy_players_count = players_qs.filter(is_academy_player=True).count()
+    main_players_count = players_qs.filter(is_academy_player=False).count()
+
+    loaned_out_count = Player.objects.filter(
+        loan_from_team=team, is_loan=True, is_academy_player=False
+    ).count()
+
+    main_players_count += loaned_out_count
+
+    top_players_qs = players_qs.order_by("-points")[:5]
+    top_players_serializer = PlayerSerializer(
+        top_players_qs, many=True, context={"request": request}
+    )
+
+    # Achievements
+    achievements = TeamAchievement.objects.filter(team=team).prefetch_related("ranks__season")
+    achievements_data = [
+        {
+            "blon_winning_season": ach.blon_winning_season,
+            "blon_count": ach.blon_count,
+            "league_champion": ach.league_champion,
+            "league_runner_up": ach.league_runner_up,
+            "ucl_champion": ach.ucl_champion,
+            "ucl_runner_up": ach.ucl_runner_up,
+            "ranks": [
+                {
+                    "season": r.season.season_name,
+                    "league_rank": r.league_rank,
+                    "ucl_rank": r.ucl_rank,
+                }
+                for r in ach.ranks.all()
+            ]
+        }
+        for ach in achievements
+    ]
+
+    return Response({
+        "team_name": team.name,
+        "logo": request.build_absolute_uri(team.logo.url) if team.logo else None,
+        "total_weekly_wage": total_weekly_wage,
+        "forecast_end_balance": team.forecast_end_balance,
+        "current_balance": team.current_balance,
+        "total_yearly_wage": total_yearly_wage,
+        "current_wage_cost": current_wage_cost,
+        "total_players": main_players_count,
+        "academy_players": academy_players_count,
+        "achievements": achievements_data,
+        "manager_name": team.manager_name,
+        "manager_photo": request.build_absolute_uri(team.manager_photo.url) if team.manager_photo else None,
+        "top_players": top_players_serializer.data,
+    })
+
+@api_view(['GET'])
 def team_players(request, team_id):
     try:
         team = Team.objects.get(pk=team_id)
@@ -49,21 +117,6 @@ def team_players(request, team_id):
     position_order = {"GK": 1, "DF": 2, "MF": 3, "FW": 4}
     players_qs = Player.objects.filter(team=team)
 
-    total_weekly_wage = sum((p.weekly_wage for p in players_qs), Decimal("0"))
-
-    # ✅ Count academy vs main players (DB aggregation)
-    academy_players_count = players_qs.filter(is_academy_player=True).count()
-    main_players_count = players_qs.filter(is_academy_player=False).count()
-
-    # ✅ Count loaned-out players separately
-    loaned_out_count = Player.objects.filter(
-        loan_from_team=team, is_loan=True, is_academy_player=False
-    ).count()
-
-    # Include loaned-out players in total main players
-    main_players_count += loaned_out_count
-
-    # ✅ Sort players in Python by position priority
     players_sorted = sorted(
         players_qs,
         key=lambda p: position_order.get(p.position, 99)
@@ -71,37 +124,12 @@ def team_players(request, team_id):
 
     serializer = PlayerSerializer(players_sorted, many=True)
 
-    # 🔹 Team Achievements (merge here)
-    achievements = TeamAchievement.objects.filter(team=team).prefetch_related("ranks__season")
-
-    achievements_data = []
-    for ach in achievements:
-        achievements_data.append({
-            "league_champion": ach.league_champion,
-            "league_runner_up": ach.league_runner_up,
-            "ucl_champion": ach.ucl_champion,
-            "ucl_runner_up": ach.ucl_runner_up,
-            "ranks": [
-                {
-                    "season": r.season.season_name,
-                    "rank": r.rank
-                }
-                for r in ach.ranks.all()
-            ]
-        })
-
     return Response({
         "team_name": team.name,
         "logo": request.build_absolute_uri(team.logo.url) if team.logo else None,
         "manager_name": team.manager_name,
-        "manager_photo": request.build_absolute_uri(team.manager_photo.url) if team.logo else None,
-        "total_weekly_wage": total_weekly_wage,
-        "forecast_end_balance": team.forecast_end_balance,
-        "current_balance": team.current_balance,
-        "total_players": main_players_count,
-        "academy_players": academy_players_count,
+        "manager_photo": request.build_absolute_uri(team.manager_photo.url) if team.manager_photo else None,
         "players": serializer.data,
-        "achievements": achievements_data,
     })
 
 @api_view(['GET'])
@@ -204,6 +232,9 @@ def get_serializer_context(self):
 # Define this globally or inside the view
 POSITION_ORDER = {"GK": 1, "DF": 2, "MF": 3, "FW": 4}
 
+from .utils import get_team_bonus_summary
+from .models import SeasonConfig
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def my_team_players(request):
@@ -213,45 +244,41 @@ def my_team_players(request):
     if not team:
         return Response({"team": None, "players": [], "expiring_contracts_count": 0}, status=status.HTTP_200_OK)
 
-    # Players currently in team
     players_qs = (
         Player.objects
         .filter(team=team)
         .select_related("team", "loan_from_team", "contract_expiry")
     )
 
-    # Total weekly wage
     total_weekly_wage = sum((p.weekly_wage for p in players_qs), Decimal("0"))
     total_yearly_wage = Decimal(total_weekly_wage * 38)
 
-    # Count academy and main players
     academy_players_count = players_qs.filter(is_academy_player=True).count()
     main_players_count = players_qs.filter(is_academy_player=False).count()
 
-    # Count loaned-out players (they are not in players_qs)
     loaned_out_count = Player.objects.filter(
         loan_from_team=team,
         is_loan=True,
         was_academy_player=False
     ).count()
-
-    # Include them in the main players count
     main_players_count += loaned_out_count
 
-    # Contract expiring count
     expiring_count = players_qs.filter(contract_expiry__isnull=True).count()
 
-    # Sort players by position order
     players_sorted = sorted(
         players_qs,
         key=lambda p: POSITION_ORDER.get(p.position, 99)
     )
 
-    # Serialize players
     players_data = PlayerSerializer(players_sorted, many=True, context={"request": request}).data
-
-    # Serialize team summary
     team_data = TeamSummarySerializer(team, context={"request": request}).data
+
+    # ✅ Get active season bonus
+    active_season = SeasonConfig.objects.filter(is_season_active=True).first()
+    team_bonus = 0.0
+    if active_season:
+        bonus_summary = get_team_bonus_summary(active_season.id, team.id)
+        team_bonus = list(bonus_summary.values())[0]["bonus"] if bonus_summary else 0.0
 
     return Response({
         "team": team_data,
@@ -261,8 +288,8 @@ def my_team_players(request):
         "total_yearly_wage": float(total_yearly_wage),
         "academy_players_count": academy_players_count,
         "main_players_count": main_players_count,
+        "season_bonus": team_bonus, 
     }, status=status.HTTP_200_OK)
-
 
 @api_view(["GET"])
 def list_transfer_windows(request):
@@ -437,7 +464,7 @@ def season_team_details(request, season_id, team_id):
     matches = MatchSerializer(qs, many=True).data
 
     # 🔧 Ensure TeamSeasonStats exists for this team & season
-    stats, _ = TeamSeasonStats.objects.get_or_create(
+    stats, _ = TeamSeasonRanks.objects.get_or_create(
         season_id=season_id,
         team_id=team_id,
         defaults={"wins": 0, "draws": 0, "losses": 0},
@@ -1140,10 +1167,6 @@ class TeamListAPIView(generics.ListAPIView):
     queryset = Team.objects.all().order_by('id')
     serializer_class = TeamMiniSerializer
 
-class SeasonViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = SeasonConfig.objects.all().order_by("-id")
-    serializer_class = SeasonMiniSerializer
-
 @api_view(["GET"])
 def league_table(request):
     season_id = request.query_params.get("season_id")
@@ -1185,3 +1208,458 @@ def league_table(request):
         "season": season.season_name,
         "table": data
     })
+
+class StoryViewSet(viewsets.ModelViewSet):
+    serializer_class = StorySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return Story.objects.filter(user=self.request.user).order_by("-created_at")
+
+    def perform_create(self, serializer):
+        story = serializer.save(user=self.request.user)
+
+        # enforce max 20 stories per user
+        user_stories = Story.objects.filter(user=self.request.user).order_by("-created_at")
+        if user_stories.count() > 20:
+            extra_stories = user_stories[20:]  # keep latest 20
+
+            for s in extra_stories:
+                if s.media:
+                    s.media.delete(save=False)  # delete file from storage
+                s.delete()
+
+from django.contrib.auth import get_user_model
+User = get_user_model()
+@api_view(["GET"])
+def stories_feed(request):
+    users = User.objects.all()
+    feed = []
+
+    for user in users:
+        user_stories = Story.objects.filter(user=user).order_by("-created_at")[:20]
+
+        if user_stories.exists():
+            feed.append({
+                "user": {
+                    "id": user.id,
+                    "name": getattr(user, "name", user.username),
+                    "logo": getattr(user, "logo", None), 
+                },
+                "stories": StorySerializer(user_stories, many=True).data
+            })
+
+    return Response(feed)
+
+class NextRoundPredictionView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_next_round(self):
+        season = SeasonConfig.get_active_season()
+        if not season:
+            return None, "No active season found."
+
+        next_round_num = season.current_gameweek + 1
+
+        round_obj = Round.objects.filter(
+            season=season, round_number=next_round_num
+        ).first()
+
+        if not round_obj:
+            return None, "No upcoming round found."
+
+        return round_obj, None
+
+    def post(self, request):
+        round_obj, err = self.get_next_round()
+        if err:
+            return Response({"error": err}, status=404)
+
+        # Already submitted?
+        if MatchPrediction.objects.filter(
+            user=request.user, round=round_obj
+        ).exists():
+            return Response(
+                {"error": "Predictions already submitted for this round."},
+                status=400
+            )
+
+        serializer = SubmitPredictionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        predictions_data = serializer.validated_data["predictions"]
+
+        if len(predictions_data) == 0:
+            return Response(
+                {"error": "You must select at least one prediction."},
+                status=400
+            )
+
+        valid_choices = ["HOME", "AWAY", "DRAW"]
+        match_ids = list(round_obj.matches.values_list("id", flat=True))
+
+        try:
+            with transaction.atomic():
+                for p in predictions_data:
+                    match_id = p.get("match")
+                    choice = p.get("choice", "")
+
+                    # ✅ Normalize
+                    choice = choice.strip().upper()
+
+                    if match_id not in match_ids:
+                        return Response({"error": "Invalid match ID."}, status=400)
+
+                    if choice not in valid_choices:
+                        return Response({"error": f"Invalid choice {choice}."}, status=400)
+
+                    match_obj = Match.objects.get(id=match_id)
+
+                    MatchPrediction.objects.create(
+                        user=request.user,
+                        round=round_obj,
+                        match=match_obj,
+                        choice=choice
+                    )
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
+
+        return Response({"success": "Predictions submitted."}, status=201)
+
+class PredictionDashboardView(APIView):
+    # permission_classes = [IsAuthenticated]
+
+    # ---------------------------------------------------------------------
+    # CURRENT ROUND DATA
+    # ---------------------------------------------------------------------
+    def get_current_round_data(self, user, season):
+        current_gw = season.current_gameweek
+        round_obj = Round.objects.filter(season=season, round_number=current_gw).first()
+        if not round_obj:
+            return None
+
+        predictions = MatchPrediction.objects.filter(user=user, round=round_obj)
+        if not predictions.exists():
+            return None
+
+        data = []
+        round_bonus = Decimal("0")
+
+        for p in predictions:
+            match = p.match
+
+            # ✅ If round NOT ended → show match in progress
+            if not round_obj.is_ended:
+                data.append({
+                    "match_id": match.id,
+                    "home": match.home_team.name,
+                    "away": match.away_team.name,
+                    "choice": p.choice,
+                    "status": "in_progress",
+                    "is_correct": None,
+                    "reward": None,
+                })
+
+            # ✅ Round ended → show correctness + reward
+            else:
+                data.append({
+                    "match_id": match.id,
+                    "home": match.home_team.name,
+                    "away": match.away_team.name,
+                    "choice": p.choice,
+                    "status": "finished",
+                    "is_correct": p.is_correct,
+                    "reward": str(p.rewarded_amount),
+                })
+                round_bonus += p.rewarded_amount
+
+        total_bonus = user.team.prediction_bonus_total
+
+        return {
+            "round_number": current_gw,
+            "status": "finished" if round_obj.is_ended else "pending",
+            "predictions": data,
+            "round_bonus": str(round_bonus) if round_obj.is_ended else None,
+            "total_bonus": str(total_bonus),
+        }
+
+    # ---------------------------------------------------------------------
+    # NEXT ROUND DATA
+    # ---------------------------------------------------------------------
+    def get_next_round_data(self, user, season):
+        next_gw = season.current_gameweek + 1
+        round_obj = Round.objects.filter(season=season, round_number=next_gw).first()
+        if not round_obj:
+            return None
+
+        matches = round_obj.matches.filter(
+            home_team__isnull=False,
+            away_team__isnull=False
+        )
+
+        # ✅ Already submitted predictions?
+        preds = MatchPrediction.objects.filter(user=user, round=round_obj)
+        already = preds.exists()
+
+        if already:
+            submitted = []
+            for p in preds:
+                submitted.append({
+                    "match_id": p.match.id,
+                    "home": p.match.home_team.name,
+                    "away": p.match.away_team.name,
+                    "choice": p.choice,
+                })
+
+            return {
+                "round_number": next_gw,
+                "already_submitted": True,
+                "submitted": submitted,
+            }
+
+        # ✅ Fresh matches to pick from
+        matches_data = [
+            {
+                "id": m.id,
+                "home_team_name": m.home_team.name,
+                "away_team_name": m.away_team.name
+            }
+            for m in matches
+        ]
+
+        return {
+            "round_number": next_gw,
+            "already_submitted": False,
+            "matches": matches_data,
+        }
+
+    # ---------------------------------------------------------------------
+    # MAIN GET RESPONSE
+    # ---------------------------------------------------------------------
+    def get(self, request):
+        season = SeasonConfig.get_active_season()
+        if not season:
+            return Response({"error": "No active season"}, status=400)
+
+        user = request.user
+
+        current_round_data = self.get_current_round_data(user, season)
+        next_round_data = self.get_next_round_data(user, season)
+
+        # ✅ Always send total bonus at top-level (critical fix)
+        total_bonus = str(user.team.prediction_bonus_total)
+
+        # ✅ Always send season info (helps frontend)
+        season_info = {
+            "current_gameweek": season.current_gameweek
+        }
+
+        return Response({
+            "season": season_info,
+            "total_bonus": total_bonus,           # ✅ Always present
+            "current_round": current_round_data,   # can be None
+            "next_round": next_round_data,
+        })
+    
+class PredictionOverviewView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        season_name = request.GET.get("season")
+        round_number = request.GET.get("round")
+
+        if season_name:
+            season = SeasonConfig.objects.filter(season_name=season_name).first()
+            if not season:
+                return Response({"error": "Season not found"}, status=404)
+        else:
+            season = SeasonConfig.get_active_season()
+            if not season:
+                return Response({"error": "No active season"}, status=400)
+
+        # ✅ Filtering
+        round_filter = {"round__season": season}
+        if round_number:
+            round_filter["round__round_number"] = int(round_number)
+
+        qs = MatchPrediction.objects.filter(**round_filter).select_related(
+            "user", "match", "match__home_team", "match__away_team", "round"
+        )
+
+        # ✅ Full prediction list
+        predictions = TeamPredictionSerializer(qs, many=True).data
+
+        leaderboard_raw = (
+            qs.values(
+                "user",
+                "user__team__manager_name",
+                "user__team__name",
+            )
+            .annotate(
+                total=Count("id"),
+                correct=Count("id", filter=Q(is_correct=True)),
+                wrong=Count("id", filter=Q(is_correct=False)),
+            )
+        )
+
+        leaderboard = []
+        for row in leaderboard_raw:
+            total = row["total"]
+            correct = row["correct"]
+            acc = (correct / total * 100) if total > 0 else 0
+
+            leaderboard.append({
+                "manager_name": row["user__team__manager_name"],
+                "team_name": row["user__team__name"],
+                "total_predictions": total,
+                "correct_predictions": correct,
+                "wrong_predictions": row["wrong"],
+                "accuracy_percent": round(acc, 2),
+            })
+
+        leaderboard = sorted(
+            leaderboard, key=lambda x: x["accuracy_percent"], reverse=True
+        )
+
+        return Response({
+            "season": season.season_name,
+            "round": int(round_number) if round_number else None,
+            "predictions": predictions,
+            "leaderboard": leaderboard,
+        })
+
+@api_view(["GET"])
+def list_rounds(request):
+    season_name = request.GET.get("season")
+    if not season_name:
+        return Response({"error": "season is required"}, status=400)
+
+    season = SeasonConfig.objects.filter(season_name=season_name).first()
+    if not season:
+        return Response({"error": "Season not found"}, status=404)
+
+    rounds = Round.objects.filter(season=season).order_by("round_number")
+
+    data = [
+        {
+            "id": r.id,
+            "round_number": r.round_number,
+            "is_ended": r.is_ended,
+            "date": r.date,
+        }
+        for r in rounds
+    ]
+    return Response(data)
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from django.db import models
+
+from TeamManage.models import (
+    SeasonConfig,
+    Round,
+    Match,
+    Team
+)
+
+
+@api_view(["GET"])
+def season_fixtures(request):
+    # ---------------------------------------------------
+    # 1. Resolve season
+    # ---------------------------------------------------
+    season_id = request.query_params.get("season_id")
+
+    if season_id:
+        try:
+            season = SeasonConfig.objects.get(id=season_id)
+        except SeasonConfig.DoesNotExist:
+            return Response({"error": "Invalid season_id"}, status=404)
+    else:
+        season = SeasonConfig.objects.order_by("-id").first()
+        if not season:
+            return Response({"error": "No seasons found"}, status=404)
+
+    # ---------------------------------------------------
+    # 2. Optional team filter
+    # ---------------------------------------------------
+    team_id = request.query_params.get("team_id")
+    team_filter = None
+
+    if team_id:
+        try:
+            team_filter = Team.objects.get(id=team_id)
+        except Team.DoesNotExist:
+            return Response({"error": "Invalid team_id"}, status=404)
+
+    # ---------------------------------------------------
+    # 3. Fetch rounds for the season
+    # ---------------------------------------------------
+    rounds = (
+        Round.objects.filter(season=season)
+        .order_by("round_number")
+    )
+
+    # ---------------------------------------------------
+    # 4. Build response structure
+    # ---------------------------------------------------
+    response_data = {
+        "season_id": season.id,
+        "season_name": season.season_name,
+        "team_filter": team_filter.name if team_filter else "all",
+        "team_filter_logo": (
+            team_filter.logo.url if team_filter and team_filter.logo else None
+        ),
+        "rounds": []
+    }
+
+    # ---------------------------------------------------
+    # 5. Loop through each round and collect matches
+    # ---------------------------------------------------
+    for r in rounds:
+        # Always use select_related for performance
+        matches_qs = r.matches.select_related(
+            "home_team", "away_team"
+        )
+
+        # Apply team filter if provided
+        if team_filter:
+            matches_qs = matches_qs.filter(
+                models.Q(home_team=team_filter) |
+                models.Q(away_team=team_filter)
+            )
+
+        matches = matches_qs.all()
+
+        # Build matches list
+        matches_data = []
+        for m in matches:
+            matches_data.append({
+                "match_id": m.id,
+                "home_team": {
+                    "id": m.home_team.id if m.home_team else None,
+                    "name": m.home_team.name if m.home_team else None,
+                    "logo": m.home_team.logo.url if m.home_team and m.home_team.logo else None,
+                },
+                "away_team": {
+                    "id": m.away_team.id if m.away_team else None,
+                    "name": m.away_team.name if m.away_team else None,
+                    "logo": m.away_team.logo.url if m.away_team and m.away_team.logo else None,
+                },
+                "home_score": m.home_score,
+                "away_score": m.away_score,
+            })
+
+        # Append round block
+        response_data["rounds"].append({
+            "round_id": r.id,
+            "round_number": r.round_number,
+            "date": r.date,
+            "is_ended": r.is_ended,
+            "match_count": matches_qs.count(),
+            "matches": matches_data
+        })
+
+    return Response(response_data)
+
+
+

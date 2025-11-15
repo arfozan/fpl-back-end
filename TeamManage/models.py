@@ -8,6 +8,10 @@ from .signals import weekly_bonus_applied, player_released
 from django.db.models import Q, F
 from datetime import timedelta
 from django_ckeditor_5.fields import CKEditor5Field
+import io
+import os
+from django.core.files.base import ContentFile
+from PIL import Image
 
 class TransferWindow(models.Model):
     SEASON_CHOICES = [
@@ -121,6 +125,8 @@ class Team(models.Model):
     )
     user_name = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
     bonus_income = models.DecimalField(max_digits=6, decimal_places=1, default=0, help_text="Total bonus income earned by the team")
+    prediction_bonus_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
 
     current_balance = models.DecimalField(max_digits=12, decimal_places=8, null=True, blank=True, help_text="Running balance updated weekly")
 
@@ -136,6 +142,32 @@ class Team(models.Model):
     @property
     def weekly_wage_total(self)-> Decimal:
         return sum(player.weekly_wage for player in self.players.all())
+    
+    @property
+    def yearly_wage_total(self)-> Decimal:
+        yearly_wage = self.weekly_wage_total * Decimal(38)
+        return yearly_wage.quantize(Decimal("0.00000001"))
+    
+    @property
+    def wage_cost(self) -> Decimal:
+        season = SeasonConfig.get_active_season()
+        if not season:
+            return self.current_balance or Decimal(0)
+        current_gameweek = season.current_gameweek
+        wage_cost = self.weekly_wage_total * Decimal(current_gameweek)
+        return wage_cost.quantize(Decimal("0.00000001"))
+    
+    @property
+    def required_wage_cost(self)-> Decimal:
+        season = SeasonConfig.get_active_season()
+        if not season:
+            return self.current_balance or Decimal(0)
+        current_gameweek = season.current_gameweek
+        remaining_weeks = 38 - current_gameweek
+        if remaining_weeks < 0:
+            remaining_weeks = 0        
+        required_wage_cost = self.weekly_wage_total * Decimal(remaining_weeks)
+        return required_wage_cost.quantize(Decimal("0.00000001"))
 
     @property
     def forecast_end_balance(self)-> Decimal:
@@ -244,14 +276,10 @@ class Player(models.Model):
         return (self.weekly_wage * Decimal("38")).quantize(Decimal("0.00000001"))
 
 class Round(models.Model):
-    season = models.ForeignKey(
-        SeasonConfig,
-        on_delete=models.CASCADE,
-        related_name="rounds",
-    )
+    season = models.ForeignKey(SeasonConfig, on_delete=models.CASCADE, related_name="rounds")
     round_number = models.PositiveIntegerField()
     date = models.DateField(null=True, blank=True)
-    is_ended = models.BooleanField(default=False)  
+    is_ended = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ("season", "round_number")
@@ -261,15 +289,65 @@ class Round(models.Model):
         active_season = SeasonConfig.get_active_season()
         if not active_season:
             raise ValidationError("No active season found. Please activate a season first.")
-        # Ensure unique round per active season
         if Round.objects.exclude(pk=self.pk).filter(
-            round_number=self.round_number, season = self.season
+            round_number=self.round_number, season=self.season
         ).exists():
             raise ValidationError(f"Round {self.round_number} already exists in the active season.")
-        
+
+    def _result_code(self, match) -> str | None:
+        # Return 'HOME' | 'AWAY' | 'DRAW' or None if incomplete
+        if match.home_score is None or match.away_score is None:
+            return None
+        if match.home_score > match.away_score:
+            return "HOME"
+        if match.away_score > match.home_score:
+            return "AWAY"
+        return "DRAW"
+
+    def process_predictions(self):
+        """
+        Called only when the round is ended AND after all matches and scores are saved.
+        Idempotent: only touches predictions with processed=False.
+        """
+        from .models import MatchPrediction, Team  # avoid circulars if any
+        with transaction.atomic():
+            for match in self.matches.select_related("round").all():
+                result = self._result_code(match)
+                if result is None:
+                    # skip incomplete matches safely
+                    continue
+
+                # Only unprocessed predictions
+                preds = match.predictions.select_related("user").filter(processed=False)
+
+                for p in preds:
+                    # IMPORTANT: Your Team model has FK named 'user_name' (not 'user')
+                    team = Team.objects.select_for_update().filter(user_name=p.user).first()
+                    if not team:
+                        # If there’s no team bound to user, just mark processed without money move
+                        p.is_correct = (p.choice == result)
+                        p.rewarded_amount = Decimal("0.00")
+                        p.processed = True
+                        p.save(update_fields=["is_correct", "rewarded_amount", "processed"])
+                        continue
+
+                    if p.choice == result:
+                        p.is_correct = True
+                        p.rewarded_amount = Decimal("0.10")
+                        team.current_balance = (team.current_balance or Decimal("0")) + Decimal("0.10")
+                        team.prediction_bonus_total = (team.prediction_bonus_total or Decimal("0")) + Decimal("0.10")
+                    else:
+                        p.is_correct = False
+                        p.rewarded_amount = Decimal("-0.05")
+                        team.current_balance = (team.current_balance or Decimal("0")) - Decimal("0.05")
+                        team.prediction_bonus_total = (team.prediction_bonus_total or Decimal("0")) - Decimal("0.05")
+
+                    p.processed = True
+                    team.save(update_fields=["current_balance", "prediction_bonus_total"])
+                    p.save(update_fields=["is_correct", "rewarded_amount", "processed"])
+
     def __str__(self):
         return f"{self.season.season_name} - GW{self.round_number} ({self.date})"
-
 
 class Match(models.Model):
     round = models.ForeignKey(
@@ -306,30 +384,6 @@ class Match(models.Model):
 
     def __str__(self):
         return f"GW{self.round.round_number}: {self.home_team} vs {self.away_team}"
-    
-class TeamSeasonStats(models.Model):
-    team = models.ForeignKey("Team", on_delete=models.CASCADE, related_name="season_stats")
-    season = models.ForeignKey("SeasonConfig", on_delete=models.CASCADE, related_name="team_stats")
-
-    wins = models.PositiveIntegerField(default=0)
-    losses = models.PositiveIntegerField(default=0)
-    draws = models.PositiveIntegerField(default=0)
-
-    class Meta:
-        unique_together = ("team", "season")
-
-    @property
-    def total_matches(self):
-        return self.wins + self.losses + self.draws
-
-    @property
-    def win_percentage(self):
-        if self.total_matches == 0:
-            return 0
-        return round((self.wins / self.total_matches) * 100, 2)
-
-    def __str__(self):
-        return f"{self.team} - {self.season.season_name} ({self.wins}W/{self.draws}D/{self.losses}L)"
 
 class TransferHistory(models.Model):
     season = models.ForeignKey('SeasonConfig', on_delete=models.CASCADE)
@@ -570,6 +624,9 @@ class TeamAchievement(models.Model):
         related_name="achievements"
     )
 
+    blon_winning_season = models.CharField(max_length=500, blank=True, null=True)
+    blon_count = models.IntegerField(default=0)
+
     # League Achievements
     league_champion = models.CharField(max_length=500, blank=True, null=True)
     league_runner_up = models.CharField(max_length=500, blank=True, null=True)
@@ -594,13 +651,14 @@ class TeamAchievementRank(models.Model):
         on_delete=models.CASCADE,
         related_name="achievement_ranks"
     )
-    rank = models.IntegerField()
+    ucl_rank = models.IntegerField(blank=True, null=True)
+    league_rank = models.IntegerField()
 
     class Meta:
         unique_together = ("achievement", "season")
 
     def __str__(self):
-        return f"{self.achievement.team.name} - {self.season.season_name} (Rank {self.rank})"
+        return f"{self.achievement.team.name} - {self.season.season_name} (UCL Rank {self.ucl_rank}, League Rank {self.league_rank})"
 
 class MaintenanceMode(models.Model):
     is_active = models.BooleanField(default=False)
@@ -648,6 +706,57 @@ class TeamSeasonRanks(models.Model):
     @property
     def points(self):
         return (self.wins * 3) + (self.draws * 1)
+    
+    @property
+    def win_percentage(self):
+        if self.total_matches == 0:
+            return 0
+        return round((self.wins / self.total_matches) * 100, 2)
 
     def __str__(self):
         return f"{self.team} - {self.season.season_name} ({self.wins}W/{self.draws}D/{self.losses}L)"
+
+def story_media_path(instance, filename):
+    return f"stories/{instance.user.id}/{filename}"
+
+class Story(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="stories")
+    text = models.TextField(blank=True, null=True)
+    media = models.FileField(upload_to=story_media_path, blank=True, null=True)
+    thumbnail = models.ImageField(upload_to=story_media_path, blank=True, null=True)
+    bg_color = models.CharField(max_length=20, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.username} Story @ {self.created_at}"
+    
+class MatchPrediction(models.Model):
+    PREDICTION_CHOICES = [
+        ("HOME", "Home Win"),
+        ("AWAY", "Away Win"),
+        ("DRAW", "Draw"),
+    ]
+
+    user = models.ForeignKey("auth.User", on_delete=models.CASCADE)
+    round = models.ForeignKey(Round, on_delete=models.CASCADE)
+    match = models.ForeignKey(
+        Match,
+        on_delete=models.CASCADE,
+        related_name="predictions"
+    )
+
+    choice = models.CharField(max_length=4, choices=PREDICTION_CHOICES)
+    is_correct = models.BooleanField(null=True, blank=True)
+
+    rewarded_amount = models.DecimalField(max_digits=6, decimal_places=2, default=0)
+    processed = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ("user", "round", "match")
+
+    def save(self, *args, **kwargs):
+        if self.choice:
+            self.choice = self.choice.strip().upper()
+        super().save(*args, **kwargs)
+
+

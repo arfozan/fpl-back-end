@@ -6,7 +6,9 @@ from .views import (
     SeasonConfigViewSet, ChangePasswordView, update_team_images, get_all_teams_summary, team_players, player_details, PlayerTransferHistoryAPIView,
     TeamTransferHistoryAPIView, players_list, current_status, NewsPostDetailView, NewsPostListCreateView, my_team_players,
     list_transfer_windows, extend_contract, TransferRequestViewSet, get_my_team, release_player, maintenance_status,
-    my_loan_players, LoanExtensionRequestViewSet, season_bonus_view, TeamListAPIView, SeasonViewSet, league_table
+    my_loan_players, LoanExtensionRequestViewSet, season_bonus_view, TeamListAPIView, league_table,
+    team_overview,StoryViewSet, stories_feed, NextRoundPredictionView, PredictionDashboardView, PredictionOverviewView,
+    list_rounds, season_fixtures
 )
 from . import views
 
@@ -14,7 +16,7 @@ router = DefaultRouter()
 router.register(r'seasons', SeasonConfigViewSet)
 router.register(r"transfer-requests", TransferRequestViewSet, basename="transferrequest")
 router.register(r'loan-extension-requests', LoanExtensionRequestViewSet, basename='loan-extension-requests')
-router.register(r"seasons", SeasonViewSet, basename="season")
+router.register(r"stories", StoryViewSet, basename="stories")
 
 urlpatterns = router.urls + [
     path('change-password/', ChangePasswordView.as_view(), name='change-password'),
@@ -22,6 +24,7 @@ urlpatterns = router.urls + [
     path('update-images/', update_team_images),
     path('team-summary/', get_all_teams_summary, name='team-summary'),
     path('team/<int:team_id>/', team_players, name='team-players'),
+    path('team/<int:team_id>/overview', team_overview, name='team-overview'),
     path('playerdetails/<int:player_id>/', player_details, name='player-details'),
     path('player/<int:player_id>/transfers/', PlayerTransferHistoryAPIView.as_view(), name='player-transfer-history'),
     path('team/<int:team_id>/transfers/', TeamTransferHistoryAPIView.as_view(), name='team-transfer-history'),
@@ -49,6 +52,13 @@ urlpatterns = router.urls + [
     path("bonus/season/<int:season_id>/", season_bonus_view, name="season-bonus"),
     path("teams/", TeamListAPIView.as_view(), name="team-list"),
     path("league-table/", league_table, name="league-table"),
+    path("stories-feed/", stories_feed, name="stories-feed"),
+    path("prediction/next-round/", NextRoundPredictionView.as_view()),
+    path("prediction/dashboard/", PredictionDashboardView.as_view()),
+    path("prediction/overview/", PredictionOverviewView.as_view()),
+    path("rounds/", list_rounds),
+    path("season-fixtures/", season_fixtures, name="season_fixtures"),
+
 
 
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

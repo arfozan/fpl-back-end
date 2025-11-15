@@ -229,69 +229,69 @@ def handle_weekly_bonus(sender, instance, **kwargs):
             team_bonuses[team] = team_bonuses.get(team, Decimal("0")) + amount
 
     # Category-wise content
-    content = "<strong>Weekly Bonus Winners</strong>"
+    content = "<p><h2<strong>>Weekly Bonus Winners:</strong></h2></p>"
 
     # Highest point teams
     if instance.highest_point_teams.exists():
-        content += "<p><strong>🏆 Highest Point Teams (+1.0M)</strong></p><ul>"
+        content += "<p><strong>🏆 Highest Point Teams (+1.0M)</strong>"
         for team in instance.highest_point_teams.all():
             content += f"<li>{team.name} (Manager: {team.manager_name})</li>"
             add_bonus(team, one)
-        content += "</ul>"
+        content += "</p>"
 
     # Highest point players
     if instance.highest_point_players.exists():
-        content += "<h4>⭐ Highest Point Players (+1.0M)</h4><ul>"
+        content += "<p><strong>⭐ Highest Point Players (+1.0M)</strong>"
         for player in instance.highest_point_players.all():
             team_name = player.team.name if player.team else "Free Agent"
             content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
             add_bonus(player.team, one)
-        content += "</ul>"
+        content += "</p>"
 
     # Goalkeepers
     if instance.highest_gk_players.exists():
-        content += "<h4>🧤 Top Goalkeeper (+0.5M)</h4><ul>"
+        content += "<p><strong>🧤 Top Goalkeeper (+0.5M)</strong>"
         for player in instance.highest_gk_players.all():
             team_name = player.team.name if player.team else "Free Agent"
             content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
             add_bonus(player.team, half)
-        content += "</ul>"
+        content += "</p>"
 
     # Defenders
     if instance.highest_df_players.exists():
-        content += "<h4>🛡️ Top Defender/s (+0.5M)</h4><ul>"
+        content += "<p><strong>🛡️ Top Defender/s (+0.5M)</strong>"
         for player in instance.highest_df_players.all():
             team_name = player.team.name if player.team else "Free Agent"
             content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
             add_bonus(player.team, half)
-        content += "</ul>"
+        content += "</p>"
 
     # Midfielders
     if instance.highest_mf_players.exists():
-        content += "<h4>⚙️ Top Midfielder/s (+0.5M)</h4><ul>"
+        content += "<p><strong>⚙️ Top Midfielder/s (+0.5M)</strong>"
         for player in instance.highest_mf_players.all():
             team_name = player.team.name if player.team else "Free Agent"
             content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
             add_bonus(player.team, half)
-        content += "</ul>"
+        content += "</p>"
 
     # Forwards
     if instance.highest_fw_players.exists():
-        content += "<h4>⚽ Top Forward/s (+0.5M)</h4><ul>"
+        content += "<p><strong>⚽ Top Forward/s (+0.5M)</strong>"
         for player in instance.highest_fw_players.all():
             team_name = player.team.name if player.team else "Free Agent"
             content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
             add_bonus(player.team, half)
-        content += "</ul>"
+        content += "</p>"
 
     # Special bonus
     if instance.special_bonus_players.exists():
-        content += "<p><strong>🎁 Team of the Week Player/s (+0.3M)</strong></p><ul>"
+        content += "<p><strong>🎁 Team of the Week Player/s (+0.3M)</strong>"
         for player in instance.special_bonus_players.all():
             team_name = player.team.name if player.team else "Free Agent"
             content += f"<li>{player.first_name} {player.last_name} – {team_name}</li>"
             add_bonus(player.team, third)
-        content += "</ul>"
+        content += "</p>"
 
     # --- Team total bonus summary ---
     sorted_teams = sorted(
@@ -301,10 +301,10 @@ def handle_weekly_bonus(sender, instance, **kwargs):
     )
 
     if sorted_teams:
-        content += "<h4>📊 Total Team Bonuses</h4><ol>"
+        content += "<p><h4><strong>📊 Total Team Bonuses</strong></h4><ol>"
         for team, bonus in sorted_teams:
             content += f"<li>{team.name} (Manager: {team.manager_name}) – <b>+{bonus:.1f}M</b></li>"
-        content += "</ol>"
+        content += "</ol></p>"
 
     # Default image (must exist in /media/)
     title_image = "bonus_title_image.png"

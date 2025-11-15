@@ -1,5 +1,5 @@
 from django.contrib import admin, messages
-from .models import SeasonConfig, Team, Player, Match, Round, TransferHistory, WeeklyBonus, TransferWindow, TeamSeasonStats, TeamAchievementRank, TeamAchievement, NewsPost
+from .models import SeasonConfig, Team, Player, Match, Round, TransferHistory, WeeklyBonus, TransferWindow, TeamSeasonRanks, TeamAchievementRank, TeamAchievement, NewsPost
 from django.core.exceptions import ValidationError
 from django.shortcuts import render, redirect
 from decimal import Decimal
@@ -113,32 +113,32 @@ class TeamAdmin(admin.ModelAdmin):
     adjust_balance_or_bonus.short_description = "💰 Adjust bonus income or current balance"
 
     
-def update_season_stats(round_obj):
-    for match in round_obj.matches.all():
-        if not all([match.home_team, match.away_team, match.home_score, match.away_score]):
-            continue  # skip incomplete matches
+# def update_season_stats(round_obj):
+#     for match in round_obj.matches.all():
+#         if not all([match.home_team, match.away_team, match.home_score, match.away_score]):
+#             continue  # skip incomplete matches
 
-        # Home stats
-        home_stats, _ = TeamSeasonStats.objects.get_or_create(
-            team=match.home_team, season=round_obj.season
-        )
-        # Away stats
-        away_stats, _ = TeamSeasonStats.objects.get_or_create(
-            team=match.away_team, season=round_obj.season
-        )
+#         # Home stats
+#         home_stats, _ = TeamSeasonStats.objects.get_or_create(
+#             team=match.home_team, season=round_obj.season
+#         )
+#         # Away stats
+#         away_stats, _ = TeamSeasonStats.objects.get_or_create(
+#             team=match.away_team, season=round_obj.season
+#         )
 
-        if match.home_score > match.away_score:  # Home win
-            home_stats.wins += 1
-            away_stats.losses += 1
-        elif match.home_score < match.away_score:  # Away win
-            away_stats.wins += 1
-            home_stats.losses += 1
-        else:  # Draw
-            home_stats.draws += 1
-            away_stats.draws += 1
+#         if match.home_score > match.away_score:  # Home win
+#             home_stats.wins += 1
+#             away_stats.losses += 1
+#         elif match.home_score < match.away_score:  # Away win
+#             away_stats.wins += 1
+#             home_stats.losses += 1
+#         else:  # Draw
+#             home_stats.draws += 1
+#             away_stats.draws += 1
 
-        home_stats.save()
-        away_stats.save()
+#         home_stats.save()
+#         away_stats.save()
 
 @admin.register(Player)
 class PlayerAdmin(admin.ModelAdmin):
@@ -171,6 +171,7 @@ class RoundAdmin(admin.ModelAdmin):
                 if match.home_score is None or match.away_score is None:
                     raise ValidationError("All matches must have scores before ending the round.")
 
+            obj.process_predictions()
             # if passes, update stats
             recalculate_season_stats(obj.season)
 
@@ -205,7 +206,7 @@ class MatchAdmin(admin.ModelAdmin):
         # Update season stats for both teams
         season = obj.round.season
         for team in [obj.home_team, obj.away_team]:
-            team_season_stats, _ = TeamSeasonStats.objects.get_or_create(
+            team_season_stats, _ = TeamSeasonRanks.objects.get_or_create(
                 team=team, season=season
             )
             team_season_stats.update_stats()

@@ -43,6 +43,14 @@ BID_EXPIRY = timedelta(hours=24)   # production
 # BID_EXPIRY = timedelta(minutes=5)
 
 
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=90),  
+    "ROTATE_REFRESH_TOKENS": True,                  
+    "BLACKLIST_AFTER_ROTATION": True,               
+}
+
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -57,7 +65,8 @@ INSTALLED_APPS = [
     'django_ckeditor_5',
     'rest_framework',
     'rest_framework_simplejwt',
-    'rest_framework.authtoken'
+    'rest_framework.authtoken',
+
 
 ]
 

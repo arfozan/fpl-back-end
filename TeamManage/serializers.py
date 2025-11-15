@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid,TransferWindow, NewsPost, TeamSeasonStats, TransferRequest, LoanExtensionRequest, Round, WeeklyBonus
+from .models import Team, Player, SeasonConfig, TransferHistory, Match, Bid,TransferWindow, NewsPost, TeamSeasonRanks, TransferRequest, LoanExtensionRequest, Round, WeeklyBonus, Story, MatchPrediction
 from decimal import Decimal
 from rest_framework.exceptions import ValidationError
 from django.db.models import Q
@@ -78,9 +78,13 @@ class PlayerSerializer(serializers.ModelSerializer):
 class TeamSummarySerializer(serializers.ModelSerializer):
     current_balance = serializers.SerializerMethodField()
     forecast_end_balance = serializers.SerializerMethodField()
+    wage_cost = serializers.SerializerMethodField()
+    required_wage_cost = serializers.SerializerMethodField()
+    yearly_wage_total = serializers.SerializerMethodField()
+    wage_cost = serializers.SerializerMethodField()
     class Meta:
         model = Team
-        fields = ['id', 'name', 'logo', 'manager_name', 'current_balance', 'forecast_end_balance', 'bonus_income',]
+        fields = ['id', 'name', 'logo', 'manager_name', 'current_balance', 'yearly_wage_total', 'wage_cost', 'required_wage_cost', 'forecast_end_balance', 'bonus_income',]
 
     def get_logo(self, obj):
         request = self.context.get('request')
@@ -92,6 +96,12 @@ class TeamSummarySerializer(serializers.ModelSerializer):
         return Decimal(obj.current_balance or 0)
     def get_forecast_end_balance(self, obj):
         return Decimal(obj.forecast_end_balance or 0)
+    def get_wage_cost(self, obj):
+        return Decimal(obj.wage_cost or 0)
+    def get_required_wage_cost(self, obj):
+        return Decimal(obj.required_wage_cost or 0)
+    def get_yearly_wage_total(self, obj):
+        return Decimal(obj.yearly_wage_total or 0)
 
 class SeasonConfigSerializer(serializers.ModelSerializer):
     class Meta:
@@ -150,7 +160,7 @@ class TeamSeasonStatsSerializer(serializers.ModelSerializer):
     win_percentage = serializers.ReadOnlyField()
 
     class Meta:
-        model = TeamSeasonStats
+        model = TeamSeasonRanks
         fields = ["team", "wins", "draws", "losses", "win_percentage"]
 
 
@@ -443,3 +453,45 @@ class SeasonMiniSerializer(serializers.ModelSerializer):
     class Meta:
         model = SeasonConfig
         fields = ["id", "season_name", "current_gameweek"]
+
+class StorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Story
+        fields = ["id", "user", "text", "media", "thumbnail", "bg_color", "created_at"]
+        read_only_fields = ["id", "user", "created_at"]
+
+class PredictionMatchSerializer(serializers.ModelSerializer):
+    home_team_name = serializers.CharField(source="home_team.name")
+    away_team_name = serializers.CharField(source="away_team.name")
+
+    class Meta:
+        model = Match
+        fields = [
+            "id", "home_team", "home_team_name",
+            "away_team", "away_team_name",
+        ]
+
+class SubmitPredictionSerializer(serializers.Serializer):
+    predictions = serializers.ListField(child=serializers.DictField())
+
+class TeamPredictionSerializer(serializers.ModelSerializer):
+    team_name = serializers.CharField(source="user.team.name")
+    manager_name = serializers.CharField(source="user.team.manager_name")
+    home = serializers.CharField(source="match.home_team.name")
+    away = serializers.CharField(source="match.away_team.name")
+
+    class Meta:
+        model = MatchPrediction
+        fields = [
+            "user",
+            "team_name",
+            "manager_name",
+            "round",
+            "home",
+            "away",
+            "choice",
+            "is_correct",
+            "rewarded_amount",
+        ]
+
+

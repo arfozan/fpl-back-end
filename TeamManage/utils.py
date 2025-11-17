@@ -1,4 +1,4 @@
-from TeamManage.models import TeamSeasonRanks, Match, SeasonConfig, Team, WeeklyBonus
+from TeamManage.models import TeamSeasonRanks, Match, SeasonConfig, Team, WeeklyBonus, MonthlyBonus
 from django.db import models
 from decimal import Decimal
 from django.shortcuts import get_object_or_404
@@ -104,6 +104,12 @@ def get_team_bonus_summary(season_id=None, team_id=None):
             for player in qs:
                 if player.team_id:
                     totals[player.team_id] = totals.get(player.team_id, Decimal("0")) + val
+
+    monthly_bonuses = MonthlyBonus.objects.filter(season_id=season_id)
+
+    for mb in monthly_bonuses:
+        if mb.team_id:     # 🟢 skip free agents
+            totals[mb.team_id] = totals.get(mb.team_id, Decimal("0")) + mb.bonus_amount
 
     # ✅ Prepare final result with team info
     result = {}

@@ -127,8 +127,8 @@ class TeamSerializer(serializers.ModelSerializer):
 
 class TransferHistorySerializer(serializers.ModelSerializer):
     player_name = serializers.CharField(source='player.__str__', read_only=True)
-    from_team_name = serializers.CharField(source='from_team.name', read_only=True)
-    to_team_name = serializers.CharField(source='to_team.name', read_only=True)
+    from_team_name = serializers.SerializerMethodField()
+    to_team_name = serializers.SerializerMethodField()
     season_name = serializers.CharField(source='season.season_name', read_only=True)
 
     class Meta:
@@ -136,8 +136,14 @@ class TransferHistorySerializer(serializers.ModelSerializer):
         fields = [
             'id', 'season', 'season_name', 'player_name', 'from_team_name', 'to_team_name',
             'amount', 'transfer_date', 'is_loan', 'loan_gameweek',
-            'is_loan_end', 'description'
+            'is_loan_end', 'description', 'to_loan', 'back_from_loan'
         ]
+    def get_from_team_name(self, obj):
+        return obj.from_team.name if obj.from_team else "Free Agent"
+
+    def get_to_team_name(self, obj):
+        return obj.to_team.name if obj.to_team else "Free Agent"
+    
     def get_amount(self, obj):
         return Decimal(obj.amount or 0)
     
@@ -304,6 +310,7 @@ class LoanExtensionRequestSerializer(serializers.ModelSerializer):
             'requested_by',
             'new_loan_gameweek',
             'is_approved',
+            'amount',
             'requested_at',
             'responded_at',
             'player_name',
@@ -334,9 +341,10 @@ class LoanExtensionRequestSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("New loan gameweek must be greater than current loan gameweek.")
         if transfer.loan_gameweek is not None and new_gw > 38:
             raise serializers.ValidationError({"Error": ["Loan gameweek cant be greater than 38 gameweek."]})
-        # raise serializers.ValidationError({
-        #             "Error": ["Loan gameweek is required for loan offers."]
-        #         })
+        def validate_amount(self, value):
+            if value < 0:
+                raise serializers.ValidationError("Amount cannot be negative.")
+            return value
 
         return data
 
@@ -479,6 +487,7 @@ class TeamPredictionSerializer(serializers.ModelSerializer):
     manager_name = serializers.CharField(source="user.team.manager_name")
     home = serializers.CharField(source="match.home_team.name")
     away = serializers.CharField(source="match.away_team.name")
+    round_number = serializers.IntegerField(source="round.round_number", read_only=True)
 
     class Meta:
         model = MatchPrediction
@@ -486,12 +495,11 @@ class TeamPredictionSerializer(serializers.ModelSerializer):
             "user",
             "team_name",
             "manager_name",
-            "round",
+            "round_number",
             "home",
             "away",
             "choice",
             "is_correct",
             "rewarded_amount",
         ]
-
 

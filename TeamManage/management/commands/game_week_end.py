@@ -117,6 +117,7 @@ class Command(BaseCommand):
                     from_team=current_team,
                     to_team=old_team,
                     amount=Decimal("0"),
+                    back_from_loan = True,
                     is_loan_end=True,
                 )
 

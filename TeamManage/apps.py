@@ -6,4 +6,4 @@ class TeammanageConfig(AppConfig):
     name = 'TeamManage'
 
     def ready(self):
-        import TeamManage.receivers 
+        import TeamManage.signals

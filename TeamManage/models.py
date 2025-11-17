@@ -127,7 +127,6 @@ class Team(models.Model):
     bonus_income = models.DecimalField(max_digits=6, decimal_places=1, default=0, help_text="Total bonus income earned by the team")
     prediction_bonus_total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
-
     current_balance = models.DecimalField(max_digits=12, decimal_places=8, null=True, blank=True, help_text="Running balance updated weekly")
 
     def __str__(self):
@@ -403,6 +402,11 @@ class TransferHistory(models.Model):
     is_loan_end = models.BooleanField(default=False, editable=False)
     description = models.TextField(blank=True, null=True)
 
+    # for loan history
+    to_loan = models.BooleanField(default=False)
+    back_from_loan = models.BooleanField(default=False)
+
+
     def clean(self):
         # Only keep lightweight checks — no side effects
         if self.from_team and self.to_team and self.from_team == self.to_team:
@@ -671,9 +675,10 @@ class LoanExtensionRequest(models.Model):
     transfer = models.ForeignKey('TransferHistory', on_delete=models.CASCADE, related_name="loan_extensions")
     requested_by = models.ForeignKey('Team', on_delete=models.CASCADE, related_name="loan_extension_requests")
     new_loan_gameweek = models.IntegerField()
-    is_approved = models.BooleanField(null=True, blank=True)  # None = pending, True = accepted, False = rejected
+    is_approved = models.BooleanField(null=True, blank=True)
     requested_at = models.DateTimeField(auto_now_add=True)
     responded_at = models.DateTimeField(null=True, blank=True)
+    amount = models.DecimalField(max_digits=4, decimal_places=1, default=0)
 
     def clean(self):
         if not self.transfer.is_loan:
@@ -759,4 +764,71 @@ class MatchPrediction(models.Model):
             self.choice = self.choice.strip().upper()
         super().save(*args, **kwargs)
 
+MONTH_CHOICES = [
+    ("JAN", "January"),
+    ("FEB", "February"),
+    ("MAR", "March"),
+    ("APR", "April"),
+    ("MAY", "May"),
+    ("JUN", "June"),
+    ("JUL", "July"),
+    ("AUG", "August"),
+    ("SEP", "September"),
+    ("OCT", "October"),
+    ("NOV", "November"),
+    ("DEC", "December"),
+]
 
+CATEGORY_CHOICES = [
+    ("POM", "Player of the Month"),
+    ("GOM", "Goal of the Month"),
+    ("SOM", "Save of the Month"),
+]
+
+CATEGORY_BONUS = {
+    "POM": Decimal("2.0"),
+    "GOM": Decimal("1.5"),
+    "SOM": Decimal("1.5"),
+}
+
+class MonthlyBonus(models.Model):
+    season = models.ForeignKey("SeasonConfig", on_delete=models.CASCADE)
+    month = models.CharField(max_length=3, choices=MONTH_CHOICES)
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, null=True, blank=True)
+    player = models.ForeignKey("Player", on_delete=models.CASCADE)
+
+    category = models.CharField(max_length=3, choices=CATEGORY_CHOICES, default="POM")
+    bonus_amount = models.DecimalField(max_digits=6, decimal_places=1, editable=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["season", "month", "category"],
+                name="unique_monthly_bonus_record"
+            )
+        ]
+
+    def save(self, *args, **kwargs):
+        # Auto-assign active season if not provided
+        if not self.season_id:
+            from .models import SeasonConfig
+            active_season = SeasonConfig.objects.filter(is_season_active=True).first()
+            if active_season:
+                self.season = active_season
+
+        # Set bonus_amount automatically based on category
+        self.bonus_amount = CATEGORY_BONUS.get(self.category, Decimal("0"))
+
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        team_name = self.team.name if self.team else "Free Agent"
+        player_name = f"{self.player.first_name} {self.player.last_name}"
+        return (
+            f"{self.season.season_name} - "
+            f"{self.get_month_display()} - "
+            f"{team_name} - "
+            f"{player_name}"
+            f"{self.get_category_display()}"
+        )

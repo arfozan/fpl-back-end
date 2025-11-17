@@ -1,5 +1,5 @@
 from django.contrib import admin, messages
-from .models import SeasonConfig, Team, Player, Match, Round, TransferHistory, WeeklyBonus, TransferWindow, TeamSeasonRanks, TeamAchievementRank, TeamAchievement, NewsPost
+from .models import SeasonConfig, Team, Player, Match, Round, TransferHistory, WeeklyBonus, TransferWindow, TeamSeasonRanks, TeamAchievementRank, TeamAchievement, NewsPost, MonthlyBonus
 from django.core.exceptions import ValidationError
 from django.shortcuts import render, redirect
 from decimal import Decimal
@@ -271,5 +271,15 @@ class NewsPostAdmin(admin.ModelAdmin):
     search_fields = ('headline', 'content', 'author__username')
     list_filter = ('date_posted',)
     ordering = ('-date_posted',)
+
+@admin.register(MonthlyBonus)
+class MonthlyBonusAdmin(admin.ModelAdmin):
+    list_display = ("season", "month", "team", "player", "bonus_amount")
+    list_filter = ("month", "team")
+    exclude = ("season", "bonus_amount")
+    search_fields = ("player__first_name", "player__last_name", "team__name")
+    autocomplete_fields = ("player",)
+
+
 
 

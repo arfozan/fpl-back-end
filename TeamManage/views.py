@@ -2,7 +2,7 @@ from rest_framework import viewsets
 from .models import (Team, Player, SeasonConfig, TransferHistory,
                      Match, Bid, NewsPost, TransferWindow, TransferRequest, 
                      TeamAchievement, MaintenanceMode, LoanExtensionRequest, WeeklyBonus,
-                     TeamSeasonRanks, Story, MatchPrediction, Round)
+                     TeamSeasonRanks, Story, MatchPrediction, Round, MonthlyBonus)
 from .serializers import (
     TeamSummarySerializer, PlayerSerializer,
     SeasonConfigSerializer, TransferHistorySerializer,
@@ -834,7 +834,6 @@ class TransferRequestViewSet(viewsets.ModelViewSet):
         tr.delete()
         return Response({"detail": "Rejected."}, status=status.HTTP_200_OK)
 
-# helpers.py (or inside views)
 from django.db import transaction
 def accept_transfer_request(tr: TransferRequest, accepted_by):
     from decimal import Decimal
@@ -866,6 +865,7 @@ def accept_transfer_request(tr: TransferRequest, accepted_by):
             transfer_date = timezone.now(),
             is_loan = tr.is_loan,
             loan_gameweek = tr.loan_gameweek,
+            to_loan = tr.is_loan,
         )
 
         # --- Update player state ---
@@ -1079,20 +1079,34 @@ class LoanExtensionRequestViewSet(viewsets.ModelViewSet):
     def approve(self, request, pk=None):
         loan_request = self.get_object()
         original_team = loan_request.transfer.from_team
+        current_team = loan_request.transfer.to_team
+        amount = loan_request.amount or 0
 
         # ensure only original team can approve
         if original_team.user_name != request.user:
             return Response({"error": "Only original team can approve."}, status=status.HTTP_403_FORBIDDEN)
+        if current_team.current_balance-Decimal(15) < amount:
+            return Response({"error": "Requesting team does not have enough balance."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        with transaction.atomic():
+            # Update loan extension request
+            loan_request.is_approved = True
+            loan_request.responded_at = timezone.now()
+            loan_request.transfer.loan_gameweek = loan_request.new_loan_gameweek
+            loan_request.transfer.save()
+            loan_request.save()
 
-        loan_request.is_approved = True
-        loan_request.responded_at = timezone.now()
-        loan_request.transfer.loan_gameweek = loan_request.new_loan_gameweek
-        loan_request.transfer.save()
-        loan_request.save()
+            # Update team balances
+            current_team.current_balance -= amount
+            current_team.save()
+            
+            original_team.current_balance += amount
+            original_team.save()
 
-        loan_request.delete()
+            # Optionally, remove the request after approval
+            loan_request.delete()
 
-        return Response({"status": "approved", "new_loan_gameweek": loan_request.new_loan_gameweek})
+        return Response({"status": "approved", "new_loan_gameweek": loan_request.new_loan_gameweek, "amount_transferred": amount})
 
     @action(detail=True, methods=['post'])
     def reject(self, request, pk=None):
@@ -1102,11 +1116,12 @@ class LoanExtensionRequestViewSet(viewsets.ModelViewSet):
         if original_team.user_name != request.user:
             return Response({"error": "Only original team can reject."}, status=status.HTTP_403_FORBIDDEN)
 
-        loan_request.is_approved = False
-        loan_request.responded_at = timezone.now()
-        loan_request.save()
-        loan_request.delete()
-        return Response({"status": "rejected"})
+        with transaction.atomic():
+            loan_request.is_approved = False
+            loan_request.responded_at = timezone.now()
+            loan_request.save()
+            loan_request.delete()
+        return Response({"status": "rejected"}, status=status.HTTP_200_OK)
     
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
@@ -1120,8 +1135,10 @@ class LoanExtensionRequestViewSet(viewsets.ModelViewSet):
         # Only allow cancel if the request is still pending
         if loan_request.is_approved is not None:
             return Response({"error": "Cannot cancel a request that has already been approved or rejected."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        with transaction.atomic():
+            loan_request.delete()
 
-        loan_request.delete()
         return Response({"status": "cancelled"}, status=status.HTTP_200_OK)
 
 @api_view(["GET"])
@@ -1156,11 +1173,33 @@ def season_bonus_view(request, season_id):
     serializer = WeeklyBonusSerializer(bonuses, many=True, context={"team_id": team_id})
     total_bonus = get_team_bonus_summary(season_id, team_id)
 
+    monthly_qs = MonthlyBonus.objects.filter(season_id=season_id)
+
+    if team_id:
+        monthly_qs = monthly_qs.filter(team_id=team_id_int)
+
+    monthly_qs = monthly_qs.order_by("-id")
+    monthly_bonus_data = [
+        {
+            "id": mb.id,
+            "season": mb.season.season_name,
+            "month": mb.get_month_display(),
+            "team": mb.team.name if mb.team else "Free Agent",
+            "team_id": mb.team.id if mb.team else None,
+            "player": f"{mb.player.first_name} {mb.player.last_name}",
+            "photo": mb.player.photo.url if mb.player.photo else None,
+            "bonus_amount": float(mb.bonus_amount),
+            "category": mb.get_category_display(),
+        }
+        for mb in monthly_qs
+    ]
+
     return Response({
         "season_id": season_id,
         "team_id": team_id,
         "total_bonus": total_bonus,
         "weekly_details": serializer.data,
+        "monthly_bonus": monthly_bonus_data,
     })
 
 class TeamListAPIView(generics.ListAPIView):
@@ -1461,12 +1500,13 @@ class PredictionDashboardView(APIView):
         })
     
 class PredictionOverviewView(APIView):
-    permission_classes = [IsAuthenticated]
+    # permission_classes = [IsAuthenticated]
 
     def get(self, request):
         season_name = request.GET.get("season")
         round_number = request.GET.get("round")
 
+        # Get season
         if season_name:
             season = SeasonConfig.objects.filter(season_name=season_name).first()
             if not season:
@@ -1476,18 +1516,33 @@ class PredictionOverviewView(APIView):
             if not season:
                 return Response({"error": "No active season"}, status=400)
 
-        # ✅ Filtering
-        round_filter = {"round__season": season}
-        if round_number:
-            round_filter["round__round_number"] = int(round_number)
+        # Determine which rounds are allowed to view
+        current_gw = season.current_gameweek
 
+        # Filter rounds
+        round_filter = {"round__season": season}
+
+        if round_number:
+            round_number = int(round_number)
+            # Lock future rounds
+            if round_number > current_gw:
+                return Response({
+                    "error": "Predictions for future rounds are locked"
+                }, status=403)
+            round_filter["round__round_number"] = round_number
+        else:
+            # If no specific round is requested, only include rounds <= current
+            round_filter["round__round_number__lte"] = current_gw
+
+        # Query predictions
         qs = MatchPrediction.objects.filter(**round_filter).select_related(
             "user", "match", "match__home_team", "match__away_team", "round"
         )
 
-        # ✅ Full prediction list
+        # Serialize
         predictions = TeamPredictionSerializer(qs, many=True).data
 
+        # Leaderboard
         leaderboard_raw = (
             qs.values(
                 "user",
@@ -1522,7 +1577,7 @@ class PredictionOverviewView(APIView):
 
         return Response({
             "season": season.season_name,
-            "round": int(round_number) if round_number else None,
+            "round": round_number if round_number else None,
             "predictions": predictions,
             "leaderboard": leaderboard,
         })
@@ -1549,18 +1604,6 @@ def list_rounds(request):
         for r in rounds
     ]
     return Response(data)
-
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from django.db import models
-
-from TeamManage.models import (
-    SeasonConfig,
-    Round,
-    Match,
-    Team
-)
-
 
 @api_view(["GET"])
 def season_fixtures(request):

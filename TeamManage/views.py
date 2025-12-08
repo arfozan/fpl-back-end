@@ -138,6 +138,7 @@ def get_my_team(request):
     try:
         team = Team.objects.get(user_name=request.user)
         return Response({
+            "has_team": True,
             "id": team.id,
             "username": request.user.username,
             "name": team.name,
@@ -147,7 +148,8 @@ def get_my_team(request):
             "current_balance": team.current_balance
         })
     except Team.DoesNotExist:
-        return Response({"error": "No team found for this user"}, status=404)
+        # User exists but has no team
+        return Response({"has_team": False})
     
 @api_view(['PUT', 'POST'])
 @permission_classes([IsAuthenticated])
@@ -1500,7 +1502,7 @@ class PredictionDashboardView(APIView):
         })
     
 class PredictionOverviewView(APIView):
-    # permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         season_name = request.GET.get("season")
@@ -1704,5 +1706,9 @@ def season_fixtures(request):
 
     return Response(response_data)
 
+from rest_framework_simplejwt.views import TokenObtainPairView
+from .authentication import MyTokenObtainPairSerializer
 
+class MyTokenObtainPairView(TokenObtainPairView):
+    serializer_class = MyTokenObtainPairSerializer
 

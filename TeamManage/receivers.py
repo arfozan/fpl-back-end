@@ -207,10 +207,7 @@ def handle_player_loan_ended(sender, player, from_team, to_team, amount, user = 
 from decimal import Decimal
 @receiver(weekly_bonus_applied)
 def handle_weekly_bonus(sender, instance, **kwargs):
-    """
-    Create a NewsPost entry summarizing the weekly bonus.
-    Includes category winners AND a ranked list of total team bonuses.
-    """
+    print("WEEKLY BONUS SIGNAL RECEIVED!", instance.pk)
     season = instance.season
     gw = instance.gameweek
 
@@ -229,7 +226,7 @@ def handle_weekly_bonus(sender, instance, **kwargs):
             team_bonuses[team] = team_bonuses.get(team, Decimal("0")) + amount
 
     # Category-wise content
-    content = "<p><h2<strong>>Weekly Bonus Winners:</strong></h2></p>"
+    content = "<p><h2><strong>Weekly Bonus Winners:</strong></h2></p>"
 
     # Highest point teams
     if instance.highest_point_teams.exists():
